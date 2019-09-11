@@ -44,7 +44,7 @@ extern R3000Acpu psxRec;
 #define PSXREC
 
 typedef union {
-#if defined(__BIGENDIAN__)
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
 	struct { u8 h3, h2, h, l; } b;
 	struct { s8 h3, h2, h, l; } sb;
 	struct { u16 h, l; } w;
@@ -205,7 +205,7 @@ void new_dyna_freeze(void *f, int mode);
 	} \
 }
 
-#if defined(__BIGENDIAN__)
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
 
 #define _i32(x) *(s32 *)&x
 #define _u32(x) x
