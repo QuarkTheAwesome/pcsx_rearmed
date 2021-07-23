@@ -2031,7 +2031,7 @@ static void update_variables(bool in_flight)
          Config.VSyncWA = 1;
    }
 
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(NO_PTHREAD)
    var.value = NULL;
    var.key = "pcsx_rearmed_async_cd";
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
@@ -2052,7 +2052,7 @@ static void update_variables(bool in_flight)
          Config.CHD_Precache = 1;
       }
    }
-#endif
+#endif // #if !defined(_WIN32) && !defined(NO_PTHREAD)
 
    var.value = NULL;
    var.key = "pcsx_rearmed_noxadecoding";
