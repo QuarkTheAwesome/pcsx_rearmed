@@ -291,7 +291,7 @@ else ifneq (,$(filter $(platform),ngc wii wiiu))
 	endif
 	CFLAGS += -D__ppc__ -D__powerpc__ -DPCSX_BIG_ENDIAN
 	CFLAGS += -DGEKKO -mcpu=750 -meabi -mhard-float
-	CFLAGS += -Ifrontend/wii -DNO_DYLIB -DNO_MMAP -DFAULTY_POSIX
+	CFLAGS += -Ifrontend/wii -DNO_SOCKET -DNO_DYLIB -DNO_MMAP -DFAULTY_POSIX
 	OBJS += frontend/wii/polyfill.o
 	STATIC_LINKING := 1
 	THREAD_RENDERING := 1
