@@ -227,18 +227,21 @@ static void video_thread_stop() {
 static void video_thread_start() {
 	fprintf(stdout, "Starting render thread\n");
 
+	memset(queues, 0, sizeof(queues));
+	thread.queue = &queues[0];
+	thread.bg_queue = &queues[1];
+
+	thread.running = TRUE;
+
 	if (pthread_cond_init(&thread.cond_msg_avail, NULL) ||
 			pthread_cond_init(&thread.cond_msg_done, NULL) ||
 			pthread_cond_init(&thread.cond_queue_empty, NULL) ||
 			pthread_mutex_init(&thread.queue_lock, NULL) ||
 			pthread_create(&thread.thread, NULL, video_thread_main, &thread)) {
+		thread.running = FALSE;
 		goto error;
 	}
 
-	thread.queue = &queues[0];
-	thread.bg_queue = &queues[1];
-
-	thread.running = TRUE;
 	return;
 
  error:
