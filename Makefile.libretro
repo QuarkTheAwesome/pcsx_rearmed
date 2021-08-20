@@ -294,7 +294,7 @@ else ifneq (,$(filter $(platform),ngc wii wiiu))
 	CFLAGS += -Ifrontend/wii -DNO_SOCKET -DNO_DYLIB -DNO_MMAP -DFAULTY_POSIX
 	OBJS += frontend/wii/polyfill.o
 	STATIC_LINKING := 1
-	THREAD_RENDERING := 1
+	THREAD_RENDERING := 0
     BUILTIN_GPU := peops
 	DYNAREC := ppc
 	LIBDL :=
