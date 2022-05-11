@@ -310,6 +310,9 @@ static int lightrec_plugin_init(void)
 	lightrec_map[PSX_MAP_BIOS].address = psxR;
 	lightrec_map[PSX_MAP_SCRATCH_PAD].address = psxH;
 	lightrec_map[PSX_MAP_PARALLEL_PORT].address = psxP;
+	lightrec_map[PSX_MAP_MIRROR1].address = psxM + 0x200000;
+	lightrec_map[PSX_MAP_MIRROR2].address = psxM + 0x400000;
+	lightrec_map[PSX_MAP_MIRROR3].address = psxM + 0x600000;
 
 	lightrec_debug = !!getenv("LIGHTREC_DEBUG");
 	lightrec_very_debug = !!getenv("LIGHTREC_VERY_DEBUG");
