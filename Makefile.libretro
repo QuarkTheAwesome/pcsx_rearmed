@@ -478,13 +478,22 @@ else
 	BUILTIN_GPU = peops
 	PLATFORM = libretro
 	MAIN_LDFLAGS += -static-libgcc -static-libstdc++ -s
-	CFLAGS += -D__WIN32__ -DNO_DYLIB
+	CFLAGS += -D__WIN32__
 	MMAP_WIN32=1
 	MAIN_LDLIBS += -lws2_32
 	LIBPTHREAD :=
-	LIBDL :=
+	NO_DYLIB = 1
 	LIBM :=
 	USE_LIBRETRO_VFS = 1
+endif
+
+ifeq ($(NO_PTHREAD),1)
+	CFLAGS += -DNO_PTHREAD
+	LIBPTHREAD :=
+endif
+ifeq ($(NO_DYLIB),1)
+	CFLAGS += -DNO_DYLIB
+	LIBDL :=
 endif
 
 CFLAGS += $(fpic)
