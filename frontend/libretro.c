@@ -303,14 +303,26 @@ static void vout_flip(const void *vram, int stride, int bgr24, int w, int h)
    {
       for (; h1-- > 0; dest += dstride, src += stride)
       {
+         // For the 16-bit video mode, the VRAM needs to be converted to host
+         // byte order before further processing. This isn't needed for
+         // the 24-bit mode.
+#ifdef PCSX_BIG_ENDIAN
+         uint16_t tmp[1024];
+         for (ssize_t i = 0; i < ((w < 1024) ? w : 1024); i++) {
+            tmp[i] = ((src[i] & 0xFF00) >> 8) | ((src[i] & 0x00FF) << 8) ;
+         }
+         bgr555_to_rgb565(dest, tmp, w * 2);
+#else
          bgr555_to_rgb565(dest, src, w * 2);
+#endif
       }
    }
 
-out:
 #ifndef FRONTEND_SUPPORTS_RGB565
    convert(vout_buf_ptr, vout_width * vout_height * 2);
 #endif
+
+out:
    vout_fb_dirty = 1;
    pl_rearmed_cbs.flip_cnt++;
 }
@@ -2031,7 +2043,7 @@ static void update_variables(bool in_flight)
          Config.VSyncWA = 1;
    }
 
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(NO_PTHREAD)
    var.value = NULL;
    var.key = "pcsx_rearmed_async_cd";
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
@@ -2052,7 +2064,7 @@ static void update_variables(bool in_flight)
          Config.CHD_Precache = 1;
       }
    }
-#endif
+#endif // #if !defined(_WIN32) && !defined(NO_PTHREAD)
 
    var.value = NULL;
    var.key = "pcsx_rearmed_noxadecoding";
@@ -3022,11 +3034,11 @@ void retro_init(void)
 
 #ifdef _3DS
    vout_buf = linearMemAlign(VOUT_MAX_WIDTH * VOUT_MAX_HEIGHT * 2, 0x80);
-#elif defined(_POSIX_C_SOURCE) && (_POSIX_C_SOURCE >= 200112L) && !defined(VITA) && !defined(__SWITCH__)
+#elif defined(_POSIX_C_SOURCE) && (_POSIX_C_SOURCE >= 200112L) && !defined(FAULTY_POSIX)
    if (posix_memalign(&vout_buf, 16, VOUT_MAX_WIDTH * VOUT_MAX_HEIGHT * 2) != 0)
       vout_buf = (void *) 0;
 #else
-   vout_buf = malloc(VOUT_MAX_WIDTH * VOUT_MAX_HEIGHT * 2);
+   vout_buf = memalign(16, VOUT_MAX_WIDTH * VOUT_MAX_HEIGHT * 2);
 #endif
 
    vout_buf_ptr = vout_buf;

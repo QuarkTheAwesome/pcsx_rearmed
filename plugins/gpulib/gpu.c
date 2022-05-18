@@ -14,7 +14,16 @@
 
 #include "gpu.h"
 
-#define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
+#ifdef PCSX_BIG_ENDIAN
+#define BESWAP16(X) ((((X) >> 8) & 0xFF) | (((X) & 0xFF) << 8))
+#define BESWAP32(X) (BESWAP16((X) >> 16) | (BESWAP16(X) << 16))
+#else
+#define BESWAP16(X) (X)
+#define BESWAP32(X) (X)
+#endif
+
+#define countof(X) (sizeof(X) / sizeof((X)[0]))
+
 #ifdef __GNUC__
 #define unlikely(x) __builtin_expect((x), 0)
 #define preload __builtin_prefetch
@@ -273,7 +282,7 @@ void GPUwriteStatus(uint32_t data)
   static const short vres[4] = { 240, 480, 256, 480 };
   uint32_t cmd = data >> 24;
 
-  if (cmd < ARRAY_SIZE(gpu.regs)) {
+  if (cmd < countof(gpu.regs)) {
     if (cmd > 1 && cmd != 5 && gpu.regs[cmd] == data)
       return;
     gpu.regs[cmd] = data;
@@ -460,12 +469,13 @@ static noinline int do_cmd_list_skip(uint32_t *data, int count, int *last_cmd)
 
   while (pos < count && skip) {
     uint32_t *list = data + pos;
-    cmd = list[0] >> 24;
+    cmd = BESWAP32(list[0]) >> 24;
     len = 1 + cmd_lengths[cmd];
 
     switch (cmd) {
       case 0x02:
-        if ((int)(list[2] & 0x3ff) > gpu.screen.w || (int)((list[2] >> 16) & 0x1ff) > gpu.screen.h)
+        if ((int)(BESWAP32(list[2]) & 0x3ff) > gpu.screen.w ||
+          (int)((BESWAP32(list[2]) >> 16) & 0x1ff) > gpu.screen.h)
           // clearing something large, don't skip
           do_cmd_list(list, 3, &dummy);
         else
@@ -476,12 +486,12 @@ static noinline int do_cmd_list_skip(uint32_t *data, int count, int *last_cmd)
       case 0x34 ... 0x37:
       case 0x3c ... 0x3f:
         gpu.ex_regs[1] &= ~0x1ff;
-        gpu.ex_regs[1] |= list[4 + ((cmd >> 4) & 1)] & 0x1ff;
+        gpu.ex_regs[1] |= BESWAP32(list[4 + ((cmd >> 4) & 1)]) & 0x1ff;
         break;
       case 0x48 ... 0x4F:
         for (v = 3; pos + v < count; v++)
         {
-          if ((list[v] & 0xf000f000) == 0x50005000)
+          if ((BESWAP32(list[v]) & 0xf000f000) == 0x50005000)
             break;
         }
         len += v - 3;
@@ -489,16 +499,16 @@ static noinline int do_cmd_list_skip(uint32_t *data, int count, int *last_cmd)
       case 0x58 ... 0x5F:
         for (v = 4; pos + v < count; v += 2)
         {
-          if ((list[v] & 0xf000f000) == 0x50005000)
+          if ((BESWAP32(list[v]) & 0xf000f000) == 0x50005000)
             break;
         }
         len += v - 4;
         break;
       default:
         if (cmd == 0xe3)
-          skip = decide_frameskip_allow(list[0]);
+          skip = decide_frameskip_allow(BESWAP32(list[0]));
         if ((cmd & 0xf8) == 0xe0)
-          gpu.ex_regs[cmd & 7] = list[0];
+          gpu.ex_regs[cmd & 7] = BESWAP32(list[0]);
         break;
     }
 
@@ -533,7 +543,7 @@ static noinline int do_cmd_buffer(uint32_t *data, int count)
         break;
     }
 
-    cmd = data[pos] >> 24;
+    cmd = BESWAP32(data[pos]) >> 24;
     if (0xa0 <= cmd && cmd <= 0xdf) {
       if (unlikely((pos+2) >= count)) {
         // incomplete vram write/read cmd, can't consume yet
@@ -542,13 +552,13 @@ static noinline int do_cmd_buffer(uint32_t *data, int count)
       }
 
       // consume vram write/read cmd
-      start_vram_transfer(data[pos + 1], data[pos + 2], (cmd & 0xe0) == 0xc0);
+      start_vram_transfer(BESWAP32(data[pos + 1]), BESWAP32(data[pos + 2]), (cmd & 0xe0) == 0xc0);
       pos += 3;
       continue;
     }
 
     // 0xex cmds might affect frameskip.allow, so pass to do_cmd_list_skip
-    if (gpu.frameskip.active && (gpu.frameskip.allow || ((data[pos] >> 24) & 0xf0) == 0xe0))
+    if (gpu.frameskip.active && (gpu.frameskip.allow || ((BESWAP32(data[pos]) >> 24) & 0xf0) == 0xe0))
       pos += do_cmd_list_skip(data + pos, count - pos, &cmd);
     else {
       pos += do_cmd_list(data + pos, count - pos, &cmd);
@@ -597,7 +607,7 @@ void GPUwriteDataMem(uint32_t *mem, int count)
 void GPUwriteData(uint32_t data)
 {
   log_io("gpu_write %08x\n", data);
-  gpu.cmd_buffer[gpu.cmd_len++] = data;
+  gpu.cmd_buffer[gpu.cmd_len++] = BESWAP32(data);
   if (gpu.cmd_len >= CMD_BUFFER_LEN)
     flush_cmd_buffer();
 }
@@ -617,9 +627,11 @@ long GPUdmaChain(uint32_t *rambase, uint32_t start_addr)
   addr = start_addr & 0xffffff;
   for (count = 0; (addr & 0x800000) == 0; count++)
   {
-    list = rambase + (addr & 0x1fffff) / 4;
-    len = list[0] >> 24;
-    addr = list[0] & 0xffffff;
+    list = &rambase[(addr & 0x1fffff) / 4];
+    uint32_t link = BESWAP32(list[0]);
+    len = link >> 24;
+    addr = link & 0xffffff;
+
     preload(rambase + (addr & 0x1fffff) / 4);
 
     cpu_cycles += 10;
@@ -644,7 +656,7 @@ long GPUdmaChain(uint32_t *rambase, uint32_t start_addr)
       // loop detection marker
       // (bit23 set causes DMA error on real machine, so
       //  unlikely to be ever set by the game)
-      list[0] |= 0x800000;
+      list[0] = BESWAP32(BESWAP32(list[0]) | 0x800000);
     }
   }
 
@@ -654,8 +666,8 @@ long GPUdmaChain(uint32_t *rambase, uint32_t start_addr)
     addr = ld_addr & 0x1fffff;
     while (count-- > 0) {
       list = rambase + addr / 4;
-      addr = list[0] & 0x1fffff;
-      list[0] &= ~0x800000;
+      addr = BESWAP32(list[0]) & 0x1fffff;
+      list[0] = BESWAP32(BESWAP32(list[0]) & ~0x800000);
     }
   }
 
@@ -686,8 +698,10 @@ uint32_t GPUreadData(void)
     flush_cmd_buffer();
 
   ret = gpu.gp0;
-  if (gpu.dma.h)
+  if (gpu.dma.h) {
     do_vram_io(&ret, 1, 1);
+    ret = BESWAP32(ret);
+  }
 
   log_io("gpu_read %08x\n", ret);
   return ret;
@@ -724,16 +738,24 @@ long GPUfreeze(uint32_t type, struct GPUFreeze *freeze)
 
       renderer_sync();
       memcpy(freeze->psxVRam, gpu.vram, 1024 * 512 * 2);
-      memcpy(freeze->ulControl, gpu.regs, sizeof(gpu.regs));
-      memcpy(freeze->ulControl + 0xe0, gpu.ex_regs, sizeof(gpu.ex_regs));
-      freeze->ulStatus = gpu.status.reg;
+      for (int i = 0; i < countof(gpu.regs); i++) {
+        freeze->ulControl[i] = BESWAP32(gpu.regs[i]);
+      }
+      for (int i = 0; i < countof(gpu.ex_regs); i++) {
+        freeze->ulControl[i + 0xE0] = BESWAP32(gpu.ex_regs[i]);
+      }
+      freeze->ulStatus = BESWAP32(gpu.status.reg);
       break;
     case 0: // load
       renderer_sync();
       memcpy(gpu.vram, freeze->psxVRam, 1024 * 512 * 2);
-      memcpy(gpu.regs, freeze->ulControl, sizeof(gpu.regs));
-      memcpy(gpu.ex_regs, freeze->ulControl + 0xe0, sizeof(gpu.ex_regs));
-      gpu.status.reg = freeze->ulStatus;
+      for (int i = 0; i < countof(gpu.regs); i++) {
+        gpu.regs[i] = BESWAP32(freeze->ulControl[i]);
+      }
+      for (int i = 0; i < countof(gpu.ex_regs); i++) {
+        gpu.ex_regs[i] = BESWAP32(freeze->ulControl[i + 0xE0]);
+      }
+      gpu.status.reg = BESWAP32(freeze->ulStatus);
       gpu.cmd_len = 0;
       for (i = 8; i > 0; i--) {
         gpu.regs[i] ^= 1; // avoid reg change detection

@@ -53,10 +53,10 @@
 
 // byteswappings
 
-#define SWAP16(x) ({ uint16_t y=(x); (((y)>>8 & 0xff) | ((y)<<8 & 0xff00)); })
-#define SWAP32(x) ({ uint32_t y=(x); (((y)>>24 & 0xfful) | ((y)>>8 & 0xff00ul) | ((y)<<8 & 0xff0000ul) | ((y)<<24 & 0xff000000ul)); })
+#define SWAP16(X) ((((X) >> 8) & 0xFF) | (((X) & 0xFF) << 8))
+#define SWAP32(X) (SWAP16((X) >> 16) | (SWAP16(X) << 16))
 
-#ifdef __BIG_ENDIAN__
+#ifdef PCSX_BIG_ENDIAN
 
 // big endian config
 #define HOST2LE32(x) SWAP32(x)
@@ -91,7 +91,7 @@
 #define GETLE32_(X) LE2HOST32(*(uint32_t *)X)
 #define GETLE16D(X) ({uint32_t val = GETLE32(X); (val<<16 | val >> 16);})
 #define PUTLE16(X, Y) do{*((uint16_t *)X)=HOST2LE16((uint16_t)Y);}while(0)
-#define PUTLE32_(X, Y) do{*((uint32_t *)X)=HOST2LE16((uint32_t)Y);}while(0)
+#define PUTLE32_(X, Y) do{*((uint32_t *)X)=HOST2LE32((uint32_t)Y);}while(0)
 #ifdef __arm__
 #define GETLE32(X) (*(uint16_t *)(X)|(((uint16_t *)(X))[1]<<16))
 #define PUTLE32(X, Y) do{uint16_t *p_=(uint16_t *)(X);uint32_t y_=Y;p_[0]=y_;p_[1]=y_>>16;}while(0)
@@ -174,15 +174,15 @@ typedef struct PSXDISPLAYTAG
  PSXPoint_t  DisplayPosition;
  PSXPoint_t  DisplayEnd;
 
- int32_t        Double;
- int32_t        Height;
- int32_t        PAL;
- int32_t        InterlacedNew;
- int32_t        Interlaced;
- int32_t        RGB24New;
- int32_t        RGB24;
+ int32_t     Double;
+ int32_t     Height;
+ int32_t     PAL;
+ int32_t     InterlacedNew;
+ int32_t     Interlaced;
+ int32_t     RGB24New;
+ int32_t     RGB24;
  PSXSPoint_t DrawOffset;
- int32_t        Disabled;
+ int32_t     Disabled;
  PSXRect_t   Range;
 
 } PSXDisplay_t;
@@ -191,8 +191,8 @@ typedef struct PSXDISPLAYTAG
 
 // draw.c
 
-extern int32_t           GlobalTextAddrX,GlobalTextAddrY,GlobalTextTP;
-extern int32_t           GlobalTextABR,GlobalTextPAGE;
+extern int32_t        GlobalTextAddrX,GlobalTextAddrY,GlobalTextTP;
+extern int32_t        GlobalTextABR,GlobalTextPAGE;
 extern short          ly0,lx0,ly1,lx1,ly2,lx2,ly3,lx3;
 extern long           lLowerpart;
 extern BOOL           bCheckMask;
@@ -209,17 +209,17 @@ extern BOOL           bUsingTWin;
 extern TWin_t         TWin;
 extern void (*primTableJ[256])(unsigned char *);
 extern void (*primTableSkip[256])(unsigned char *);
-extern unsigned short  usMirror;
+extern unsigned short usMirror;
 extern int            iDither;
-extern uint32_t  dwCfgFixes;
-extern uint32_t  dwActFixes;
+extern uint32_t       dwCfgFixes;
+extern uint32_t       dwActFixes;
 extern int            iUseFixes;
 extern int            iUseDither;
 extern BOOL           bDoVSyncUpdate;
-extern int32_t           drawX;
-extern int32_t           drawY;
-extern int32_t           drawW;
-extern int32_t           drawH;
+extern int32_t        drawX;
+extern int32_t        drawY;
+extern int32_t        drawW;
+extern int32_t        drawH;
 
 // gpu.h
 
@@ -235,22 +235,16 @@ extern int32_t           drawH;
 #define KEY_BADTEXTURES   128
 #define KEY_CHECKTHISOUT  256
 
-#if !defined(__BIG_ENDIAN__) || defined(__x86_64__) || defined(__i386__)
-#ifndef __LITTLE_ENDIAN__
-#define __LITTLE_ENDIAN__
-#endif
-#endif
-
-#ifdef __LITTLE_ENDIAN__
-#define RED(x) (x & 0xff)
-#define BLUE(x) ((x>>16) & 0xff)
-#define GREEN(x) ((x>>8) & 0xff)
-#define COLOR(x) (x & 0xffffff)
-#elif defined __BIG_ENDIAN__
+#ifdef PCSX_BIG_ENDIAN
 #define RED(x) ((x>>24) & 0xff)
 #define BLUE(x) ((x>>8) & 0xff)
 #define GREEN(x) ((x>>16) & 0xff)
 #define COLOR(x) SWAP32(x & 0xffffff)
+#else
+#define RED(x) (x & 0xff)
+#define BLUE(x) ((x>>16) & 0xff)
+#define GREEN(x) ((x>>8) & 0xff)
+#define COLOR(x) (x & 0xffffff)
 #endif
 
 PSXDisplay_t      PSXDisplay;
@@ -262,7 +256,7 @@ signed   short *psxVsw;
 uint32_t *psxVul;
 int32_t  *psxVsl;
 
-long              lGPUstatusRet;
+uint32_t          lGPUstatusRet;
 uint32_t          lGPUInfoVals[16];
 
 VRAMLoad_t        VRAMWrite;
@@ -297,7 +291,7 @@ static void set_vram(void *vram)
 int renderer_init(void)
 {
  set_vram(gpu.vram);
-
+ 
  PSXDisplay.RGB24        = FALSE;                      // init some stuff
  PSXDisplay.Interlaced   = FALSE;
  PSXDisplay.DrawOffset.x = 0;
@@ -333,19 +327,17 @@ int do_cmd_list(uint32_t *list, int list_len, int *last_cmd)
 
   for (; list < list_end; list += 1 + len)
   {
-    cmd = *list >> 24;
+    cmd = LE2HOST32(*list) >> 24;
     len = cmd_lengths[cmd];
     if (list + 1 + len > list_end) {
       cmd = -1;
       break;
     }
 
-#ifndef TEST
     if (cmd == 0xa0 || cmd == 0xc0)
       break; // image i/o, forward to upper layer
     else if ((cmd & 0xf8) == 0xe0)
-      gpu.ex_regs[cmd & 7] = list[0];
-#endif
+      gpu.ex_regs[cmd & 7] = LE2HOST32(*list);
 
     primTableJ[cmd]((void *)list);
 
@@ -363,7 +355,7 @@ int do_cmd_list(uint32_t *list, int list_len, int *last_cmd)
             goto breakloop;
           }
 
-          if((*list_position & 0xf000f000) == 0x50005000)
+          if((LE2HOST32(*list_position) & 0xf000f000) == 0x50005000)
             break;
 
           list_position++;
@@ -386,7 +378,7 @@ int do_cmd_list(uint32_t *list, int list_len, int *last_cmd)
             goto breakloop;
           }
 
-          if((*list_position & 0xf000f000) == 0x50005000)
+          if((LE2HOST32(*list_position) & 0xf000f000) == 0x50005000)
             break;
 
           list_position += 2;
@@ -396,19 +388,6 @@ int do_cmd_list(uint32_t *list, int list_len, int *last_cmd)
         len += (num_vertexes - 2) * 2;
         break;
       }
-
-#ifdef TEST
-      case 0xA0:          //  sys -> vid
-      {
-        short *slist = (void *)list;
-        u32 load_width = slist[4];
-        u32 load_height = slist[5];
-        u32 load_size = load_width * load_height;
-
-        len += load_size / 2;
-        break;
-      }
-#endif
     }
   }
 
@@ -422,12 +401,25 @@ breakloop:
 
 void renderer_sync_ecmds(uint32_t *ecmds)
 {
+  // Registers are in Native Endian, and the command handlers expect Little
+  // Endian. The solution, such as it is, is to do a temporary byteswap on
+  // the registers.
+#ifdef PCSX_BIG_ENDIAN
+  for (int idx = 0; idx < 7; idx++) {
+    ecmds[idx] = HOST2LE32(ecmds[idx]);
+  }
+#endif  
   cmdTexturePage((unsigned char *)&ecmds[1]);
   cmdTextureWindow((unsigned char *)&ecmds[2]);
   cmdDrawAreaStart((unsigned char *)&ecmds[3]);
   cmdDrawAreaEnd((unsigned char *)&ecmds[4]);
   cmdDrawOffset((unsigned char *)&ecmds[5]);
   cmdSTP((unsigned char *)&ecmds[6]);
+#ifdef PCSX_BIG_ENDIAN
+  for (int idx = 0; idx < 7; idx++) {
+    ecmds[idx] = LE2HOST32(ecmds[idx]);
+  }
+#endif
 }
 
 void renderer_update_caches(int x, int y, int w, int h)

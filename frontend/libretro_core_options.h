@@ -165,7 +165,7 @@ struct retro_core_option_v2_definition option_defs_us[] = {
       },
       "disabled",
    },
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(NO_PTHREAD)
    {
       "pcsx_rearmed_async_cd",
       "CD Access Method (Restart)",

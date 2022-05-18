@@ -1,6 +1,8 @@
 #ifndef __PLUGIN_LIB_H__
 #define __PLUGIN_LIB_H__
 
+#include <stdint.h>
+
 #define THREAD_RENDERING_OFF   0
 #define THREAD_RENDERING_SYNC  1
 #define THREAD_RENDERING_ASYNC 2
@@ -72,8 +74,8 @@ struct rearmed_cbs {
 	int   fskip_advice;
 	int   fskip_force;
 	int   fskip_dirty;
-	unsigned int *gpu_frame_count;
-	unsigned int *gpu_hcnt;
+	uint32_t *gpu_frame_count;
+	uint32_t *gpu_hcnt;
 	unsigned int flip_cnt; // increment manually if not using pl_vout_flip
 	unsigned int only_16bpp; // platform is 16bpp-only
 	unsigned int thread_rendering;

@@ -31,6 +31,12 @@
 #include <chd.h>
 #endif
 
+// Allow the file to build without OS threads support (disables CDDA also)
+#if defined(NO_PTHREAD) && !defined(_WIN32)
+#define NO_THREADS
+#endif
+
+#ifndef NO_THREADS
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <process.h>
@@ -41,6 +47,7 @@
 #include <sys/time.h>
 #include <unistd.h>
 #endif
+#endif // #ifndef NO_THREADS
 
 #ifdef USE_LIBRETRO_VFS
 #include <streams/file_stream_transforms.h>
@@ -192,16 +199,16 @@ static int parsetoc(const char *isofile) {
 		return -1;
 	}
 
-	if ((fi = fopen(tocname, "r")) == NULL) {
+	if ((fi = cdriso_fopen(tocname, "r")) == NULL) {
 		// try changing extension to .cue (to satisfy some stupid tutorials)
 		strcpy(tocname + strlen(tocname) - 4, ".cue");
-		if ((fi = fopen(tocname, "r")) == NULL) {
+		if ((fi = cdriso_fopen(tocname, "r")) == NULL) {
 			// if filename is image.toc.bin, try removing .bin (for Brasero)
 			strcpy(tocname, isofile);
 			t = strlen(tocname);
 			if (t >= 8 && strcmp(tocname + t - 8, ".toc.bin") == 0) {
 				tocname[t - 4] = '\0';
-				if ((fi = fopen(tocname, "r")) == NULL) {
+				if ((fi = cdriso_fopen(tocname, "r")) == NULL) {
 					return -1;
 				}
 			}
@@ -345,7 +352,7 @@ static int parsecue(const char *isofile) {
 		return -1;
 	}
 
-	if ((fi = fopen(cuename, "r")) == NULL) {
+	if ((fi = cdriso_fopen(cuename, "r")) == NULL) {
 		return -1;
 	}
 
@@ -449,7 +456,7 @@ static int parsecue(const char *isofile) {
 			else
 				tmp = tmpb;
 			strncpy(incue_fname, tmp, incue_max_len);
-			ti[numtracks + 1].handle = fopen(filepath, "rb");
+			ti[numtracks + 1].handle = cdriso_fopen(filepath, "rb");
 
 			// update global offset if this is not first file in this .cue
 			if (numtracks + 1 > 1) {
@@ -470,7 +477,7 @@ static int parsecue(const char *isofile) {
 				strncasecmp(isofile + strlen(isofile) - 4, ".cd", 3) == 0)) {
 				// user selected .cue/.cdX as image file, use it's data track instead
 				fclose(cdHandle);
-				cdHandle = fopen(filepath, "rb");
+				cdHandle = cdriso_fopen(filepath, "rb");
 			}
 		}
 	}
@@ -504,7 +511,7 @@ static int parseccd(const char *isofile) {
 		return -1;
 	}
 
-	if ((fi = fopen(ccdname, "r")) == NULL) {
+	if ((fi = cdriso_fopen(ccdname, "r")) == NULL) {
 		return -1;
 	}
 
@@ -563,7 +570,7 @@ static int parsemds(const char *isofile) {
 		return -1;
 	}
 
-	if ((fi = fopen(mdsname, "rb")) == NULL) {
+	if ((fi = cdriso_fopen(mdsname, "rb")) == NULL) {
 		return -1;
 	}
 
@@ -1036,7 +1043,7 @@ static int opensubfile(const char *isoname) {
 		return -1;
 	}
 
-	subHandle = fopen(subname, "rb");
+	subHandle = cdriso_fopen(subname, "rb");
 	if (subHandle == NULL) {
 		return -1;
 	}
@@ -1068,6 +1075,7 @@ static int opensbifile(const char *isoname) {
 	return LoadSBI(sbiname, s);
 }
 
+#ifndef NO_THREADS
 #ifdef _WIN32
 static void readThreadStop() {}
 static void readThreadStart() {}
@@ -1260,6 +1268,7 @@ static void readThreadStart() {
   readThreadStop();
 }
 #endif
+#endif // #ifndef NO_THREADS
 
 static int cdread_normal(FILE *f, unsigned int base, void *dest, int sector)
 {
@@ -1433,6 +1442,7 @@ static int cdread_2048(FILE *f, unsigned int base, void *dest, int sector)
 	return ret;
 }
 
+#ifndef NO_THREADS
 #ifndef _WIN32
 
 static int cdread_async(FILE *f, unsigned int base, void *dest, int sector) {
@@ -1480,6 +1490,7 @@ static int cdread_async(FILE *f, unsigned int base, void *dest, int sector) {
 }
 
 #endif
+#endif // #ifndef NO_THREADS
 
 static unsigned char * CALLBACK ISOgetBuffer_compr(void) {
 	return compr_img->buff_raw[compr_img->sector_in_blk] + 12;
@@ -1491,6 +1502,7 @@ static unsigned char * CALLBACK ISOgetBuffer_chd(void) {
 }
 #endif
 
+#ifndef NO_THREADS
 #ifndef _WIN32
 static unsigned char * CALLBACK ISOgetBuffer_async(void) {
   unsigned char *buffer;
@@ -1499,8 +1511,8 @@ static unsigned char * CALLBACK ISOgetBuffer_async(void) {
   pthread_mutex_unlock(&sectorbuffer_lock);
   return buffer + 12;
 }
-
 #endif
+#endif // #ifndef NO_THREADS
 
 static unsigned char * CALLBACK ISOgetBuffer(void) {
 	return cdbuffer + 12;
@@ -1530,7 +1542,7 @@ static long CALLBACK ISOopen(void) {
 		return 0; // it's already open
 	}
 
-	cdHandle = fopen(GetIsoFile(), "rb");
+	cdHandle = cdriso_fopen(GetIsoFile(), "rb");
 	if (cdHandle == NULL) {
 		SysPrintf(_("Could't open '%s' for reading: %s\n"),
 			GetIsoFile(), strerror(errno));
@@ -1604,7 +1616,7 @@ static long CALLBACK ISOopen(void) {
 			p = alt_bin_filename + strlen(alt_bin_filename) - 4;
 			for (i = 0; i < sizeof(exts) / sizeof(exts[0]); i++) {
 				strcpy(p, exts[i]);
-				tmpf = fopen(alt_bin_filename, "rb");
+				tmpf = cdriso_fopen(alt_bin_filename, "rb");
 				if (tmpf != NULL)
 					break;
 			}
@@ -1645,14 +1657,16 @@ static long CALLBACK ISOopen(void) {
 
 	// make sure we have another handle open for cdda
 	if (numtracks > 1 && ti[1].handle == NULL) {
-		ti[1].handle = fopen(bin_filename, "rb");
+		ti[1].handle = cdriso_fopen(bin_filename, "rb");
 	}
 	cdda_cur_sector = 0;
 	cdda_file_offset = 0;
 
+#ifndef NO_THREADS
   if (Config.AsyncCD) {
     readThreadStart();
   }
+#endif
 	return 0;
 }
 
@@ -1698,9 +1712,11 @@ static long CALLBACK ISOclose(void) {
 	memset(cdbuffer, 0, sizeof(cdbuffer));
 	CDR_getBuffer = ISOgetBuffer;
 
+#ifndef NO_THREADS
 	if (Config.AsyncCD) {
 		readThreadStop();
 	}
+#endif // #ifndef NO_THREADS
 
 	return 0;
 }
