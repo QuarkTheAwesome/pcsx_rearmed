@@ -44,7 +44,7 @@ extern R3000Acpu psxRec;
 #define PSXREC
 
 typedef union {
-#if defined(__BIGENDIAN__)
+#ifdef PCSX_BIG_ENDIAN
 	struct { u8 h3, h2, h, l; } b;
 	struct { s8 h3, h2, h, l; } sb;
 	struct { u16 h, l; } w;
@@ -205,7 +205,7 @@ void new_dyna_freeze(void *f, int mode);
 	} \
 }
 
-#if defined(__BIGENDIAN__)
+#ifdef PCSX_BIG_ENDIAN
 
 #define _i32(x) *(s32 *)&x
 #define _u32(x) x
@@ -232,11 +232,11 @@ void new_dyna_freeze(void *f, int mode);
 /**** R3000A Instruction Macros ****/
 #define _PC_       psxRegs.pc       // The next PC to be executed
 
-#define _fOp_(code)		((code >> 26)       )  // The opcode part of the instruction register 
-#define _fFunct_(code)	((code      ) & 0x3F)  // The funct part of the instruction register 
-#define _fRd_(code)		((code >> 11) & 0x1F)  // The rd part of the instruction register 
-#define _fRt_(code)		((code >> 16) & 0x1F)  // The rt part of the instruction register 
-#define _fRs_(code)		((code >> 21) & 0x1F)  // The rs part of the instruction register 
+#define _fOp_(code)		((code >> 26)       )  // The opcode part of the instruction register
+#define _fFunct_(code)	((code      ) & 0x3F)  // The funct part of the instruction register
+#define _fRd_(code)		((code >> 11) & 0x1F)  // The rd part of the instruction register
+#define _fRt_(code)		((code >> 16) & 0x1F)  // The rt part of the instruction register
+#define _fRs_(code)		((code >> 21) & 0x1F)  // The rs part of the instruction register
 #define _fSa_(code)		((code >>  6) & 0x1F)  // The sa part of the instruction register
 #define _fIm_(code)		((u16)code)            // The immediate part of the instruction register
 #define _fTarget_(code)	(code & 0x03ffffff)    // The target part of the instruction register

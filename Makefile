@@ -182,9 +182,9 @@ plugins/gpu_neon/psx_gpu_if.o: plugins/gpu_neon/psx_gpu/*.c
 endif
 ifeq "$(BUILTIN_GPU)" "peops"
 CFLAGS += -DGPU_PEOPS
-# note: code is not safe for strict-aliasing? (Castlevania problems)
-plugins/dfxvideo/gpulib_if.o: CFLAGS += -fno-strict-aliasing
-plugins/dfxvideo/gpulib_if.o: plugins/dfxvideo/prim.c plugins/dfxvideo/soft.c
+# The peops plugin doesn't follow the C strict aliasing rules
+plugins/dfxvideo/%.o: CFLAGS += -fno-strict-aliasing
+plugins/dfxvideo/%.o: plugins/dfxvideo/prim.c plugins/dfxvideo/soft.c
 OBJS += plugins/dfxvideo/gpulib_if.o
 ifeq "$(THREAD_RENDERING)" "1"
 CFLAGS += -DTHREAD_RENDERING
@@ -204,7 +204,7 @@ ifeq "$(THREAD_RENDERING)" "1"
 CFLAGS += -DTHREAD_RENDERING
 OBJS += plugins/gpulib/gpulib_thread_if.o
 endif
-plugins/gpu_unai/gpulib_if.o: CFLAGS += -DREARMED -O3 
+plugins/gpu_unai/gpulib_if.o: CFLAGS += -DREARMED -O3
 CC_LINK = $(CXX)
 endif
 
