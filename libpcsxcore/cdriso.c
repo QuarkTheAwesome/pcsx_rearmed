@@ -36,6 +36,9 @@
 #include <process.h>
 #include <windows.h>
 #define strcasecmp _stricmp
+#define NO_THREADS
+#elif defined(NO_PTHREAD)
+#define NO_THREADS
 #else
 #include <pthread.h>
 #include <sys/time.h>
@@ -1074,7 +1077,7 @@ static int opensbifile(const char *isoname) {
 	return LoadSBI(sbiname, s);
 }
 
-#ifdef _WIN32
+#ifdef NO_THREADS
 static void readThreadStop() {}
 static void readThreadStart() {}
 #else
@@ -1439,7 +1442,7 @@ static int cdread_2048(FILE *f, unsigned int base, void *dest, int sector)
 	return ret;
 }
 
-#ifndef _WIN32
+#ifndef NO_THREADS
 
 static int cdread_async(FILE *f, unsigned int base, void *dest, int sector) {
   boolean found = FALSE;
@@ -1497,7 +1500,7 @@ static unsigned char * CALLBACK ISOgetBuffer_chd(void) {
 }
 #endif
 
-#ifndef _WIN32
+#ifndef NO_THREADS
 static unsigned char * CALLBACK ISOgetBuffer_async(void) {
   unsigned char *buffer;
   pthread_mutex_lock(&sectorbuffer_lock);
