@@ -31,9 +31,9 @@
 
 #include "lightrec/mem.h"
 
-#ifndef NO_MMAP
+#if !defined(NO_MMAP) || defined(__wiiu__)
 #include "memmap.h"
-#endif NO_MMAP
+#endif
 
 #ifdef USE_LIBRETRO_VFS
 #include <streams/file_stream_transforms.h>

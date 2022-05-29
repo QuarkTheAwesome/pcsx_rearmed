@@ -292,6 +292,7 @@ else ifneq (,$(filter $(platform),ngc wii wiiu))
 	else ifeq ($(platform), wiiu)
 		# -mwup was removed in newer devkitPPC versions
 		CFLAGS += -DHW_WUP -D__wiiu__ -DHW_WUP -ffunction-sections -fdata-sections
+		CFLAGS += -Ifrontend/wiiu
 	endif
 	CFLAGS += -D__ppc__ -D__powerpc__
 	CFLAGS += -DGEKKO -mcpu=750 -meabi -mhard-float
