@@ -1,8 +1,5 @@
-#ifndef __EMU_IF_H__
-#define __EMU_IF_H__
-
-#include "../../new_dynarec.h"
-#include "../../../r3000a.h"
+#include "new_dynarec.h"
+#include "../r3000a.h"
 
 extern char invalid_code[0x100000];
 
@@ -10,8 +7,7 @@ extern char invalid_code[0x100000];
 #define EAX 0
 #define ECX 1
 
-/* same as psxRegs */
-extern int reg[];
+extern int dynarec_local[];
 
 /* same as psxRegs.GPR.n.* */
 extern int hi, lo;
@@ -22,8 +18,6 @@ extern int reg_cop0[];
 #define Cause    psxRegs.CP0.n.Cause
 #define EPC      psxRegs.CP0.n.EPC
 #define BadVAddr psxRegs.CP0.n.BadVAddr
-#define Context  psxRegs.CP0.n.Context
-#define EntryHi  psxRegs.CP0.n.EntryHi
 #define Count    psxRegs.cycle // psxRegs.CP0.n.Count
 
 /* COP2/GTE */
@@ -56,12 +50,8 @@ extern int reg_cop2d[], reg_cop2c[];
 extern void *gte_handlers[64];
 extern void *gte_handlers_nf[64];
 extern const char *gte_regnames[64];
-extern const char gte_cycletab[64];
 extern const uint64_t gte_reg_reads[64];
 extern const uint64_t gte_reg_writes[64];
-
-/* dummy */
-extern int FCR0, FCR31;
 
 /* mem */
 extern void *mem_rtab;
@@ -76,19 +66,21 @@ void jump_handler_write32(u32 addr, u32 data, u32 cycles, u32 *table);
 void jump_handler_write_h(u32 addr, u32 data, u32 cycles, void *handler);
 void jump_handle_swl(u32 addr, u32 data, u32 cycles);
 void jump_handle_swr(u32 addr, u32 data, u32 cycles);
-void rcnt0_read_count_m0(u32 addr, u32, u32 cycles);
-void rcnt0_read_count_m1(u32 addr, u32, u32 cycles);
-void rcnt1_read_count_m0(u32 addr, u32, u32 cycles);
-void rcnt1_read_count_m1(u32 addr, u32, u32 cycles);
-void rcnt2_read_count_m0(u32 addr, u32, u32 cycles);
-void rcnt2_read_count_m1(u32 addr, u32, u32 cycles);
+u32  rcnt0_read_count_m0(u32 addr, u32, u32 cycles);
+u32  rcnt0_read_count_m1(u32 addr, u32, u32 cycles);
+u32  rcnt1_read_count_m0(u32 addr, u32, u32 cycles);
+u32  rcnt1_read_count_m1(u32 addr, u32, u32 cycles);
+u32  rcnt2_read_count_m0(u32 addr, u32, u32 cycles);
+u32  rcnt2_read_count_m1(u32 addr, u32, u32 cycles);
 
 extern unsigned int address;
+extern unsigned int hack_addr;
 extern void *psxH_ptr;
 extern void *zeromem_ptr;
 extern void *scratch_buf_ptr;
 
 // same as invalid_code, just a region for ram write checks (inclusive)
+// (psx/guest address range)
 extern u32 inv_code_start, inv_code_end;
 
 /* cycles/irqs */
@@ -100,14 +92,6 @@ void pcsx_mtc0(u32 reg, u32 val);
 void pcsx_mtc0_ds(u32 reg, u32 val);
 
 /* misc */
-extern void (*psxHLEt[])();
-
 extern void SysPrintf(const char *fmt, ...);
 
-#ifdef RAM_FIXED
-#define rdram ((u_int)0x80000000)
-#else
-#define rdram ((u_int)psxM)
-#endif
-
-#endif /* __EMU_IF_H__ */
+#define rdram ((u_char *)psxM)

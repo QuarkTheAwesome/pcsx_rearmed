@@ -123,6 +123,11 @@ typedef jit_int32_t		jit_bool_t;
 typedef jit_int32_t		jit_gpr_t;
 typedef jit_int32_t		jit_fpr_t;
 
+#if !defined(__powerpc__) && \
+	(defined(__POWERPC__) || defined(__ppc__) || defined(__PPC__))
+#define __powerpc__ 1
+#endif
+
 #if defined(__i386__) || defined(__x86_64__)
 #  include <lightning/jit_x86.h>
 #elif defined(__mips__)
@@ -145,8 +150,6 @@ typedef jit_int32_t		jit_fpr_t;
 #  include <lightning/jit_alpha.h>
 #elif defined(__riscv)
 #  include <lightning/jit_riscv.h>
-#elif defined(__sh__)
-#  include <lightning/jit_sh.h>
 #endif
 
 #define jit_flag_node		0x0001	/* patch node not absolute */
@@ -159,11 +162,9 @@ typedef jit_int32_t		jit_fpr_t;
 
 #define JIT_R(index)		jit_r(index)
 #define JIT_V(index)		jit_v(index)
-#define JIT_A(index)		jit_a(index)
 #define JIT_F(index)		jit_f(index)
 #define JIT_R_NUM		jit_r_num()
 #define JIT_V_NUM		jit_v_num()
-#define JIT_A_NUM		jit_a_num()
 #define JIT_F_NUM		jit_f_num()
 
 #define JIT_DISABLE_DATA	1	/* force synthesize of constants */
@@ -217,7 +218,6 @@ typedef enum {
 #define jit_getarg_i(u,v)	_jit_getarg_i(_jit,u,v)
 #if __WORDSIZE == 32
 #  define jit_getarg(u,v)	jit_getarg_i(u,v)
-#  define jit_getarg_ui(u,v)	jit_getarg_i(u,v)
 #else
 #  define jit_getarg(u,v)	jit_getarg_l(u,v)
 #  define jit_getarg_ui(u,v)	_jit_getarg_ui(_jit,u,v)
@@ -344,14 +344,21 @@ typedef enum {
 #define jit_movr(u,v)		jit_new_node_ww(jit_code_movr,u,v)
 #define jit_movi(u,v)		jit_new_node_ww(jit_code_movi,u,v)
     jit_code_movr,		jit_code_movi,
+
+#define jit_movnr(u,v,w)	jit_new_node_www(jit_code_movnr,u,v,w)
+#define jit_movzr(u,v,w)	jit_new_node_www(jit_code_movzr,u,v,w)
+    jit_code_movnr,		jit_code_movzr,
+
 #define jit_extr_c(u,v)		jit_new_node_ww(jit_code_extr_c,u,v)
 #define jit_extr_uc(u,v)	jit_new_node_ww(jit_code_extr_uc,u,v)
     jit_code_extr_c,		jit_code_extr_uc,
 #define jit_extr_s(u,v)		jit_new_node_ww(jit_code_extr_s,u,v)
 #define jit_extr_us(u,v)	jit_new_node_ww(jit_code_extr_us,u,v)
     jit_code_extr_s,		jit_code_extr_us,
+#if __WORDSIZE == 64
 #  define jit_extr_i(u,v)	jit_new_node_ww(jit_code_extr_i,u,v)
 #  define jit_extr_ui(u,v)	jit_new_node_ww(jit_code_extr_ui,u,v)
+#endif
     jit_code_extr_i,		jit_code_extr_ui,
 
 #define jit_htonr_us(u,v)	jit_new_node_ww(jit_code_htonr_us,u,v)
@@ -363,8 +370,8 @@ typedef enum {
 #  define jit_htonr(u,v)	jit_new_node_ww(jit_code_htonr_ui,u,v)
 #  define jit_ntohr(u,v)	jit_new_node_ww(jit_code_htonr_ui,u,v)
 #else
-#  define jit_htonr_ul(u,v)	jit_new_node_ww(jit_code_htonr_ul,u,v)
-#  define jit_ntohr_ul(u,v)	jit_new_node_ww(jit_code_htonr_ul,u,v)
+#define jit_htonr_ul(u,v)	jit_new_node_ww(jit_code_htonr_ul,u,v)
+#define jit_ntohr_ul(u,v)	jit_new_node_ww(jit_code_htonr_ul,u,v)
 #  define jit_htonr(u,v)	jit_new_node_ww(jit_code_htonr_ul,u,v)
 #  define jit_ntohr(u,v)	jit_new_node_ww(jit_code_htonr_ul,u,v)
 #endif
@@ -387,9 +394,7 @@ typedef enum {
     jit_code_ldr_i,		jit_code_ldi_i,
 #if __WORDSIZE == 32
 #  define jit_ldr(u,v)		jit_ldr_i(u,v)
-#  define jit_ldr_ui(u,v)	jit_ldr_i(u,v)
 #  define jit_ldi(u,v)		jit_ldi_i(u,v)
-#  define jit_ldi_ui(u,v)	jit_ldi_i(u,v)
 #else
 #  define jit_ldr(u,v)		jit_ldr_l(u,v)
 #  define jit_ldi(u,v)		jit_ldi_l(u,v)
@@ -418,9 +423,7 @@ typedef enum {
     jit_code_ldxr_i,		jit_code_ldxi_i,
 #if __WORDSIZE == 32
 #  define jit_ldxr(u,v,w)	jit_ldxr_i(u,v,w)
-#  define jit_ldxr_ui(u,v,w)	jit_ldxr_i(u,v,w)
 #  define jit_ldxi(u,v,w)	jit_ldxi_i(u,v,w)
-#  define jit_ldxi_ui(u,v,w)	jit_ldxi_i(u,v,w)
 #else
 #  define jit_ldxr_ui(u,v,w)	jit_new_node_www(jit_code_ldxr_ui,u,v,w)
 #  define jit_ldxi_ui(u,v,w)	jit_new_node_www(jit_code_ldxi_ui,u,v,w)
@@ -564,7 +567,6 @@ typedef enum {
 #define jit_retval_i(u)		_jit_retval_i(_jit,u)
 #if __WORDSIZE == 32
 #  define jit_retval(u)		jit_retval_i(u)
-#  define jit_retval_ui(u)	jit_retval_i(u)
 #else
 #  define jit_retval(u)		jit_retval_l(u)
 #  define jit_retval_ui(u)	_jit_retval_ui(_jit,u)
@@ -881,18 +883,6 @@ typedef enum {
 #define jit_retval_d(u)		_jit_retval_d(_jit,u)
     jit_code_retval_d,
 
-#define jit_bswapr_us(u,v)	jit_new_node_ww(jit_code_bswapr_us,u,v)
-    jit_code_bswapr_us,
-#define jit_bswapr_ui(u,v)	jit_new_node_ww(jit_code_bswapr_ui,u,v)
-    jit_code_bswapr_ui,
-#define jit_bswapr_ul(u,v)	jit_new_node_ww(jit_code_bswapr_ul,u,v)
-    jit_code_bswapr_ul,
-#if __WORDSIZE == 32
-#define jit_bswapr(u,v)		jit_new_node_ww(jit_code_bswapr_ui,u,v)
-#else
-#define jit_bswapr(u,v)		jit_new_node_ww(jit_code_bswapr_ul,u,v)
-#endif
-
     /* Special internal backend specific codes */
     jit_code_movr_w_f,		jit_code_movr_ww_d,	/* w* -> f|d */
 #define jit_movr_w_f(u, v)	jit_new_node_ww(jit_code_movr_w_f, u, v)
@@ -910,6 +900,18 @@ typedef enum {
     jit_code_movr_d_w,		jit_code_movi_d_w,	/* d -> w */
 #define jit_movr_d_w(u, v)	jit_new_node_ww(jit_code_movr_d_w, u, v)
 #define jit_movi_d_w(u, v)	jit_new_node_wd(jit_code_movi_d_w, u, v)
+
+#define jit_bswapr_us(u,v)	jit_new_node_ww(jit_code_bswapr_us,u,v)
+    jit_code_bswapr_us,
+#define jit_bswapr_ui(u,v)	jit_new_node_ww(jit_code_bswapr_ui,u,v)
+    jit_code_bswapr_ui,
+#define jit_bswapr_ul(u,v)	jit_new_node_ww(jit_code_bswapr_ul,u,v)
+    jit_code_bswapr_ul,
+#if __WORDSIZE == 32
+#define jit_bswapr(u,v)		jit_new_node_ww(jit_code_bswapr_ui,u,v)
+#else
+#define jit_bswapr(u,v)		jit_new_node_ww(jit_code_bswapr_ul,u,v)
+#endif
 
     jit_code_last_code
 } jit_code_t;
@@ -1030,6 +1032,12 @@ extern void _jit_pushargi_d(jit_state_t*, jit_float64_t);
 extern void _jit_retr_d(jit_state_t*, jit_fpr_t);
 extern void _jit_reti_d(jit_state_t*, jit_float64_t);
 extern void _jit_retval_d(jit_state_t*, jit_fpr_t);
+
+#define jit_get_reg(s)		_jit_get_reg(_jit,s)
+extern jit_int32_t _jit_get_reg(jit_state_t*, jit_int32_t);
+
+#define jit_unget_reg(r)	_jit_unget_reg(_jit,r)
+extern void _jit_unget_reg(jit_state_t*, jit_int32_t);
 
 #define jit_new_node(c)		_jit_new_node(_jit,c)
 extern jit_node_t *_jit_new_node(jit_state_t*, jit_code_t);

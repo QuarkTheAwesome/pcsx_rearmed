@@ -48,7 +48,7 @@ CFLAGS += -DPCNT
 endif
 
 # core
-OBJS += libpcsxcore/cdriso.o libpcsxcore/cdrom.o libpcsxcore/cheat.o \
+OBJS += libpcsxcore/cdriso.o libpcsxcore/cdrom.o libpcsxcore/cheat.o libpcsxcore/database.o \
 	libpcsxcore/decode_xa.o libpcsxcore/mdec.o \
 	libpcsxcore/misc.o libpcsxcore/plugins.o libpcsxcore/ppf.o libpcsxcore/psxbios.o \
 	libpcsxcore/psxcommon.o libpcsxcore/psxcounters.o libpcsxcore/psxdma.o libpcsxcore/psxhle.o \
@@ -88,8 +88,8 @@ libpcsxcore/psxbios.o: CFLAGS += -Wno-nonnull
 
 # dynarec
 ifeq "$(DYNAREC)" "lightrec"
-CFLAGS += -Ideps/lightning/include -Ideps/lightrec \
-		  -DLIGHTREC -DLIGHTREC_STATIC
+CFLAGS += -Ideps/lightning/include -Ideps/lightrec -Iinclude/lightning -Iinclude/lightrec \
+		  -DLIGHTREC -DLIGHTREC_STATIC -DHAVE_MMAP
 OBJS += libpcsxcore/lightrec/plugin.o
 OBJS += deps/lightning/lib/jit_disasm.o \
 		deps/lightning/lib/jit_memory.o \
@@ -109,30 +109,32 @@ OBJS += deps/lightning/lib/jit_disasm.o \
 		deps/lightrec/recompiler.o \
 		deps/lightrec/reaper.o
 ifeq ($(MMAP_WIN32),1)
-CFLAGS += -Ideps/mman
+CFLAGS += -Iinclude/mman
 OBJS += deps/mman/mman.o
 endif
 else ifeq "$(DYNAREC)" "ari64"
-CFLAGS += -DNEW_DYNAREC
-OBJS += libpcsxcore/new_dynarec/backends/psx/emu_if.o \
-		libpcsxcore/new_dynarec/new_dynarec.o \
-		libpcsxcore/new_dynarec/arm/linkage_arm.o \
-		libpcsxcore/new_dynarec/backends/psx/pcsxmem.o
-libpcsxcore/new_dynarec/new_dynarec.o: libpcsxcore/new_dynarec/arm/assem_arm.c \
-	libpcsxcore/new_dynarec/backends/psx/pcsxmem_inline.c
+OBJS += libpcsxcore/new_dynarec/new_dynarec.o
+OBJS += libpcsxcore/new_dynarec/pcsxmem.o
+ ifeq "$(ARCH)" "arm"
+ OBJS += libpcsxcore/new_dynarec/linkage_arm.o
+ libpcsxcore/new_dynarec/new_dynarec.o: libpcsxcore/new_dynarec/assem_arm.c
+ else ifneq (,$(findstring $(ARCH),aarch64 arm64))
+ OBJS += libpcsxcore/new_dynarec/linkage_arm64.o
+ libpcsxcore/new_dynarec/new_dynarec.o: libpcsxcore/new_dynarec/assem_arm64.c
+ else
+ $(error no dynarec support for architecture $(ARCH))
+ endif
 else
-OBJS += libpcsxcore/new_dynarec/backends/psx/emu_if.o
-libpcsxcore/new_dynarec/backends/psx/emu_if.o: CFLAGS += -DDRC_DISABLE
-frontend/libretro.o: CFLAGS += -DDRC_DISABLE
+CFLAGS += -DDRC_DISABLE
 endif
+OBJS += libpcsxcore/new_dynarec/emu_if.o
+libpcsxcore/new_dynarec/new_dynarec.o: libpcsxcore/new_dynarec/pcsxmem_inline.c
 ifdef DRC_DBG
-libpcsxcore/new_dynarec/backends/psx/emu_if.o: CFLAGS += -D_FILE_OFFSET_BITS=64
+libpcsxcore/new_dynarec/emu_if.o: CFLAGS += -D_FILE_OFFSET_BITS=64
 CFLAGS += -DDRC_DBG
 endif
-ifeq "$(DRC_CACHE_BASE)" "1"
-libpcsxcore/new_dynarec/%.o: CFLAGS += -DBASE_ADDR_FIXED=1
-libpcsxcore/new_dynarec/backends/psx/%.o: CFLAGS += -DBASE_ADDR_FIXED=1
-libpcsxcore/new_dynarec/arm/%.o: CFLAGS += -DBASE_ADDR_FIXED=1
+ifeq "$(BASE_ADDR_DYNAMIC)" "1"
+libpcsxcore/new_dynarec/%.o: CFLAGS += -DBASE_ADDR_DYNAMIC=1
 endif
 
 # spu
@@ -328,6 +330,7 @@ ifeq "$(USE_PLUGIN_LIB)" "1"
 OBJS += frontend/plugin_lib.o
 OBJS += frontend/libpicofe/linux/plat.o
 OBJS += frontend/libpicofe/readpng.o frontend/libpicofe/fonts.o
+frontend/libpicofe/linux/plat.o: CFLAGS += -DNO_HOME_DIR
 ifeq "$(HAVE_NEON)" "1"
 OBJS += frontend/libpicofe/arm/neon_scale2x.o
 OBJS += frontend/libpicofe/arm/neon_eagle2x.o
@@ -363,7 +366,7 @@ libpcsxcore/gte_nf.o: libpcsxcore/gte.c
 	$(CC) -c -o $@ $^ $(CFLAGS) -DFLAGLESS
 
 frontend/revision.h: FORCE
-	@(git describe || echo) | sed -e 's/.*/#define REV "\0"/' > $@_
+	@(git describe --always || echo) | sed -e 's/.*/#define REV "\0"/' > $@_
 	@diff -q $@_ $@ > /dev/null 2>&1 || cp $@_ $@
 	@rm $@_
 
@@ -407,7 +410,7 @@ endif
 
 # ----------- release -----------
 
-VER ?= $(shell git describe HEAD)
+VER ?= $(shell git describe --always HEAD)
 
 ifeq "$(PLATFORM)" "generic"
 OUT = pcsx_rearmed_$(VER)

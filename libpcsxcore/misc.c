@@ -21,11 +21,13 @@
 * Miscellaneous functions, including savestates and CD-ROM loading.
 */
 
+#include <stddef.h>
 #include "misc.h"
 #include "cdrom.h"
 #include "mdec.h"
 #include "gpu.h"
 #include "ppf.h"
+#include "database.h"
 #include <zlib.h>
 
 char CdromId[10] = "";
@@ -236,6 +238,7 @@ int LoadCdrom() {
 	tmpHead.t_addr = SWAP32(tmpHead.t_addr);
 
 	psxCpu->Clear(tmpHead.t_addr, tmpHead.t_size / 4);
+	psxCpu->Reset();
 
 	// Read the rest of the main executable
 	while (tmpHead.t_size & ~2047) {
@@ -283,6 +286,7 @@ int LoadCdromFile(const char *filename, EXE_HEADER *head) {
 	addr = head->t_addr;
 
 	psxCpu->Clear(addr, size / 4);
+	psxCpu->Reset();
 
 	while (size & ~2047) {
 		incTime();
@@ -379,17 +383,25 @@ int CheckCdrom() {
 		strcpy(CdromId, "SLUS99999");
 
 	if (Config.PsxAuto) { // autodetect system (pal or ntsc)
-		if (CdromId[2] == 'e' || CdromId[2] == 'E')
+		if (
+			/* Make sure Wild Arms SCUS-94608 is not detected as a PAL game. */
+			((CdromId[0] == 's' || CdromId[0] == 'S') && (CdromId[2] == 'e' || CdromId[2] == 'E')) ||
+			!strncmp(CdromId, "DTLS3035", 8) ||
+			!strncmp(CdromId, "PBPX95001", 9) || // according to redump.org, these PAL
+			!strncmp(CdromId, "PBPX95007", 9) || // discs have a non-standard ID;
+			!strncmp(CdromId, "PBPX95008", 9))   // add more serials if they are discovered.
 			Config.PsxType = PSX_TYPE_PAL; // pal
 		else Config.PsxType = PSX_TYPE_NTSC; // ntsc
 	}
 
 	if (CdromLabel[0] == ' ') {
-		memcpy(CdromLabel, CdromId, 9);
+		strncpy(CdromLabel, CdromId, 9);
 	}
 	SysPrintf(_("CD-ROM Label: %.32s\n"), CdromLabel);
 	SysPrintf(_("CD-ROM ID: %.9s\n"), CdromId);
 	SysPrintf(_("CD-ROM EXE Name: %.255s\n"), exename);
+	
+	Apply_Hacks_Cdrom();
 
 	BuildPPFCache();
 
@@ -584,6 +596,15 @@ static const char PcsxHeader[32] = "STv4 PCSX v" PCSX_VERSION;
 // If you make changes to the savestate version, please increment the value below.
 static const u32 SaveVersion = 0x8b410006;
 
+static int drc_is_lightrec(void)
+{
+#if defined(LIGHTREC)
+	return 1;
+#else
+	return 0;
+#endif
+}
+
 int SaveState(const char *file) {
 	void *f;
 	GPUFreeze_t *gpufP;
@@ -595,6 +616,9 @@ int SaveState(const char *file) {
 	if (f == NULL) return -1;
 
 	new_dyna_before_save();
+
+	if (drc_is_lightrec() && Config.Cpu != CPU_INTERPRETER)
+		lightrec_plugin_prepare_save_state();
 
 	SaveFuncs.write(f, (void *)PcsxHeader, 32);
 	SaveFuncs.write(f, (void *)&SaveVersion, sizeof(u32));
@@ -612,7 +636,8 @@ int SaveState(const char *file) {
 	SaveFuncs.write(f, psxM, 0x00200000);
 	SaveFuncs.write(f, psxR, 0x00080000);
 	SaveFuncs.write(f, psxH, 0x00010000);
-	SaveFuncs.write(f, (void *)&psxRegs, sizeof(psxRegs));
+	// only partial save of psxRegisters to maintain savestate compat
+	SaveFuncs.write(f, &psxRegs, offsetof(psxRegisters, gteBusyCycle));
 
 	// gpu
 	gpufP = (GPUFreeze_t *)malloc(sizeof(GPUFreeze_t));
@@ -670,18 +695,18 @@ int LoadState(const char *file) {
 	if (Config.HLE)
 		psxBiosInit();
 
-#if defined(LIGHTREC)
-	if (Config.Cpu != CPU_INTERPRETER)
-		psxCpu->Clear(0, UINT32_MAX); //clear all
-	else
-#endif
-	psxCpu->Reset();
+	if (!drc_is_lightrec() || Config.Cpu == CPU_INTERPRETER)
+		psxCpu->Reset();
 	SaveFuncs.seek(f, 128 * 96 * 3, SEEK_CUR);
 
 	SaveFuncs.read(f, psxM, 0x00200000);
 	SaveFuncs.read(f, psxR, 0x00080000);
 	SaveFuncs.read(f, psxH, 0x00010000);
-	SaveFuncs.read(f, (void *)&psxRegs, sizeof(psxRegs));
+	SaveFuncs.read(f, &psxRegs, offsetof(psxRegisters, gteBusyCycle));
+	psxRegs.gteBusyCycle = psxRegs.cycle;
+
+	if (drc_is_lightrec() && Config.Cpu != CPU_INTERPRETER)
+		lightrec_plugin_prepare_load_state();
 
 	if (Config.HLE)
 		psxBiosFreeze(0);
@@ -768,7 +793,7 @@ int RecvPcsxInfo() {
 	NET_recvData(&Config.Cpu, sizeof(Config.Cpu), PSE_NET_BLOCKING);
 	if (tmp != Config.Cpu) {
 		psxCpu->Shutdown();
-#if defined(NEW_DYNAREC) || defined(LIGHTREC)
+#ifndef DRC_DISABLE
 		if (Config.Cpu == CPU_INTERPRETER) psxCpu = &psxInt;
 		else psxCpu = &psxRec;
 #else

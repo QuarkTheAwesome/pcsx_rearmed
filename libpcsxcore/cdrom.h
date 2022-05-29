@@ -41,6 +41,9 @@ extern "C" {
 
 #define SUB_FRAMESIZE			96
 
+#define MIN_VALUE(a,b) ({ __typeof__ (a) _a = (a); __typeof__ (b) _b = (b); _a < _b ? _a : _b; })
+#define MAX_VALUE(a,b) ({ __typeof__ (a) _a = (a); __typeof__ (b) _b = (b); _a > _b ? _a : _b; })
+
 typedef struct {
 	unsigned char OCUP;
 	unsigned char Reg1Mode;
@@ -87,7 +90,7 @@ typedef struct {
 	int CurTrack;
 	int Mode, File, Channel;
 	int Reset;
-	int RErr;
+	int NoErr;
 	int FirstSector;
 
 	xa_decode_t Xa;

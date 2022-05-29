@@ -122,7 +122,7 @@ void emu_set_default_config(void)
 {
 	// try to set sane config on which most games work
 	Config.Xa = Config.Cdda = Config.Sio =
-	Config.SpuIrq = Config.RCntFix = Config.VSyncWA = 0;
+	Config.icache_emulation = Config.SpuIrq = Config.RCntFix = Config.VSyncWA = 0;
 	Config.PsxAuto = 1;
 
 	pl_rearmed_cbs.thread_rendering = 0;
@@ -148,7 +148,6 @@ void emu_set_default_config(void)
 	pl_rearmed_cbs.gpu_peopsgl.iTexGarbageCollection = 1;
 
 	spu_config.iUseReverb = 1;
-	spu_config.idiablofix = 0;
 	spu_config.iUseInterpolation = 1;
 	spu_config.iXAPitch = 0;
 	spu_config.iVolume = 768;
@@ -157,7 +156,9 @@ void emu_set_default_config(void)
 #if defined(HAVE_PRE_ARMV7) && !defined(_3DS) /* XXX GPH hack */
 	spu_config.iUseReverb = 0;
 	spu_config.iUseInterpolation = 0;
+#ifndef HAVE_LIBRETRO
 	spu_config.iTempo = 1;
+#endif
 #endif
 	new_dynarec_hacks = 0;
 	cycle_multiplier = 200;

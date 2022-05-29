@@ -44,6 +44,7 @@ int in_analog_right[8][2] = {{ 127, 127 },{ 127, 127 },{ 127, 127 },{ 127, 127 }
 int in_adev[2] = { -1, -1 }, in_adev_axis[2][2] = {{ 0, 1 }, { 0, 1 }};
 int in_adev_is_nublike[2];
 unsigned short in_keystate[8];
+int in_mouse[8][2];
 int in_state_gun;
 int in_enable_vibration;
 void *tsdev;
@@ -400,6 +401,8 @@ static void pl_vout_flip(const void *vram, int stride, int bgr24, int w, int h)
 #endif
 	else
 	{
+		src = (void *)((uintptr_t)src & ~3); // align for the blitter
+
 		for (; h1-- > 0; dest += dstride * 2, src += stride)
 		{
 			bgr555_to_rgb565(dest, src, w * 2);
@@ -674,6 +677,7 @@ void pl_frame_limit(void)
 				hud_msg[0] = 0;
 		}
 		tv_old = now;
+		//new_dynarec_print_stats();
 	}
 #ifdef PCNT
 	static int ya_vsync_count;

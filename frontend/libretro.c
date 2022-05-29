@@ -87,14 +87,35 @@ static bool found_bios;
 static bool display_internal_fps = false;
 static unsigned frame_count = 0;
 static bool libretro_supports_bitmasks = false;
+static bool libretro_supports_option_categories = false;
+static bool show_input_settings = true;
 #ifdef GPU_PEOPS
-static int show_advanced_gpu_peops_settings = -1;
+static bool show_advanced_gpu_peops_settings = true;
 #endif
 #ifdef GPU_UNAI
-static int show_advanced_gpu_unai_settings = -1;
+static bool show_advanced_gpu_unai_settings = true;
 #endif
-static int show_other_input_settings = -1;
 static float mouse_sensitivity = 1.0f;
+
+typedef enum
+{
+   FRAMESKIP_NONE = 0,
+   FRAMESKIP_AUTO,
+   FRAMESKIP_AUTO_THRESHOLD,
+   FRAMESKIP_FIXED_INTERVAL
+} frameskip_type_t;
+
+static unsigned frameskip_type                  = FRAMESKIP_NONE;
+static unsigned frameskip_threshold             = 0;
+static unsigned frameskip_interval              = 0;
+static unsigned frameskip_counter               = 0;
+
+static int retro_audio_buff_active              = false;
+static unsigned retro_audio_buff_occupancy      = 0;
+static int retro_audio_buff_underrun            = false;
+
+static unsigned retro_audio_latency             = 0;
+static int update_audio_latency                 = false;
 
 static unsigned previous_width = 0;
 static unsigned previous_height = 0;
@@ -556,8 +577,155 @@ static const struct retro_controller_info ports[9] =
 };
 
 /* libretro */
+
+static bool update_option_visibility(void)
+{
+   struct retro_variable var                       = {0};
+   struct retro_core_option_display option_display = {0};
+   bool updated                                    = false;
+   unsigned i;
+
+   /* If frontend supports core option categories
+    * then show/hide core option entries are ignored
+    * and no options should be hidden */
+   if (libretro_supports_option_categories)
+      return false;
+
+   var.key = "pcsx_rearmed_show_input_settings";
+   var.value = NULL;
+
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      bool show_input_settings_prev =
+            show_input_settings;
+
+      show_input_settings = true;
+      if (strcmp(var.value, "disabled") == 0)
+         show_input_settings = false;
+
+      if (show_input_settings !=
+            show_input_settings_prev)
+      {
+         char input_option[][50] = {
+            "pcsx_rearmed_analog_axis_modifier",
+            "pcsx_rearmed_vibration",
+            "pcsx_rearmed_multitap",
+            "pcsx_rearmed_negcon_deadzone",
+            "pcsx_rearmed_negcon_response",
+            "pcsx_rearmed_input_sensitivity",
+            "pcsx_rearmed_gunconadjustx",
+            "pcsx_rearmed_gunconadjusty",
+            "pcsx_rearmed_gunconadjustratiox",
+            "pcsx_rearmed_gunconadjustratioy"
+         };
+
+         option_display.visible = show_input_settings;
+
+         for (i = 0;
+              i < (sizeof(input_option) /
+                     sizeof(input_option[0]));
+              i++)
+         {
+            option_display.key = input_option[i];
+            environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY,
+                  &option_display);
+         }
+
+         updated = true;
+      }
+   }
+#ifdef GPU_PEOPS
+   var.key = "pcsx_rearmed_show_gpu_peops_settings";
+   var.value = NULL;
+
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      bool show_advanced_gpu_peops_settings_prev =
+            show_advanced_gpu_peops_settings;
+
+      show_advanced_gpu_peops_settings = true;
+      if (strcmp(var.value, "disabled") == 0)
+         show_advanced_gpu_peops_settings = false;
+
+      if (show_advanced_gpu_peops_settings !=
+            show_advanced_gpu_peops_settings_prev)
+      {
+         unsigned i;
+         struct retro_core_option_display option_display;
+         char gpu_peops_option[][45] = {
+            "pcsx_rearmed_gpu_peops_odd_even_bit",
+            "pcsx_rearmed_gpu_peops_expand_screen_width",
+            "pcsx_rearmed_gpu_peops_ignore_brightness",
+            "pcsx_rearmed_gpu_peops_disable_coord_check",
+            "pcsx_rearmed_gpu_peops_lazy_screen_update",
+            "pcsx_rearmed_gpu_peops_repeated_triangles",
+            "pcsx_rearmed_gpu_peops_quads_with_triangles",
+            "pcsx_rearmed_gpu_peops_fake_busy_state"
+         };
+
+         option_display.visible = show_advanced_gpu_peops_settings;
+
+         for (i = 0;
+              i < (sizeof(gpu_peops_option) /
+                     sizeof(gpu_peops_option[0]));
+              i++)
+         {
+            option_display.key = gpu_peops_option[i];
+            environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY,
+                  &option_display);
+         }
+
+         updated = true;
+      }
+   }
+#endif
+#ifdef GPU_UNAI
+   var.key = "pcsx_rearmed_show_gpu_unai_settings";
+   var.value = NULL;
+
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      bool show_advanced_gpu_unai_settings_prev =
+            show_advanced_gpu_unai_settings;
+
+      show_advanced_gpu_unai_settings = true;
+      if (strcmp(var.value, "disabled") == 0)
+         show_advanced_gpu_unai_settings = false;
+
+      if (show_advanced_gpu_unai_settings !=
+            show_advanced_gpu_unai_settings_prev)
+      {
+         unsigned i;
+         struct retro_core_option_display option_display;
+         char gpu_unai_option[][40] = {
+            "pcsx_rearmed_gpu_unai_blending",
+            "pcsx_rearmed_gpu_unai_lighting",
+            "pcsx_rearmed_gpu_unai_fast_lighting",
+            "pcsx_rearmed_gpu_unai_scale_hires",
+         };
+
+         option_display.visible = show_advanced_gpu_unai_settings;
+
+         for (i = 0;
+              i < (sizeof(gpu_unai_option) /
+                     sizeof(gpu_unai_option[0]));
+              i++)
+         {
+            option_display.key = gpu_unai_option[i];
+            environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY,
+                  &option_display);
+         }
+
+         updated = true;
+      }
+   }
+#endif
+   return updated;
+}
+
 void retro_set_environment(retro_environment_t cb)
 {
+   bool option_categories = false;
 #ifdef USE_LIBRETRO_VFS
    struct retro_vfs_interface_info vfs_iface_info;
 #endif
@@ -568,7 +736,54 @@ void retro_set_environment(retro_environment_t cb)
       log_cb = logging.log;
 
    environ_cb(RETRO_ENVIRONMENT_SET_CONTROLLER_INFO, (void*)ports);
-   libretro_set_core_options(environ_cb);
+
+   /* Set core options
+    * An annoyance: retro_set_environment() can be called
+    * multiple times, and depending upon the current frontend
+    * state various environment callbacks may be disabled.
+    * This means the reported 'categories_supported' status
+    * may change on subsequent iterations. We therefore have
+    * to record whether 'categories_supported' is true on any
+    * iteration, and latch the result */
+   libretro_set_core_options(environ_cb, &option_categories);
+   libretro_supports_option_categories |= option_categories;
+
+   /* If frontend supports core option categories,
+    * any show/hide core option entries are unused
+    * and should be hidden */
+   if (libretro_supports_option_categories)
+   {
+      struct retro_core_option_display option_display;
+      option_display.visible = false;
+
+      option_display.key = "pcsx_rearmed_show_input_settings";
+      environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY,
+            &option_display);
+
+#ifdef GPU_PEOPS
+      option_display.key = "pcsx_rearmed_show_gpu_peops_settings";
+      environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY,
+            &option_display);
+#endif
+#ifdef GPU_UNAI
+      option_display.key = "pcsx_rearmed_show_gpu_unai_settings";
+      environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY,
+            &option_display);
+#endif
+   }
+   /* If frontend does not support core option
+    * categories, core options may be shown/hidden
+    * at runtime. In this case, register 'update
+    * display' callback, so frontend can update
+    * core options menu without calling retro_run() */
+   else
+   {
+      struct retro_core_options_update_display_callback update_display_cb;
+      update_display_cb.callback = update_option_visibility;
+
+      environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK,
+            &update_display_cb);
+   }
 
 #ifdef USE_LIBRETRO_VFS
    vfs_iface_info.required_interface_version = 1;
@@ -654,7 +869,7 @@ void retro_get_system_info(struct retro_system_info *info)
 #endif
    memset(info, 0, sizeof(*info));
    info->library_name     = "PCSX-ReARMed";
-   info->library_version  = "r22" GIT_VERSION;
+   info->library_version  = "r23l" GIT_VERSION;
    info->valid_extensions = "bin|cue|img|mdf|pbp|toc|cbn|m3u|chd";
    info->need_fullpath    = true;
 }
@@ -1195,6 +1410,61 @@ static void set_retro_memmap(void)
 #endif
 }
 
+static void retro_audio_buff_status_cb(
+   bool active, unsigned occupancy, bool underrun_likely)
+{
+   retro_audio_buff_active    = active;
+   retro_audio_buff_occupancy = occupancy;
+   retro_audio_buff_underrun  = underrun_likely;
+}
+
+static void retro_set_audio_buff_status_cb(void)
+{
+   if (frameskip_type == FRAMESKIP_NONE)
+   {
+      environ_cb(RETRO_ENVIRONMENT_SET_AUDIO_BUFFER_STATUS_CALLBACK, NULL);
+      retro_audio_latency = 0;
+   }
+   else
+   {
+      bool calculate_audio_latency = true;
+
+      if (frameskip_type == FRAMESKIP_FIXED_INTERVAL)
+         environ_cb(RETRO_ENVIRONMENT_SET_AUDIO_BUFFER_STATUS_CALLBACK, NULL);
+      else
+      {
+         struct retro_audio_buffer_status_callback buf_status_cb;
+         buf_status_cb.callback = retro_audio_buff_status_cb;
+         if (!environ_cb(RETRO_ENVIRONMENT_SET_AUDIO_BUFFER_STATUS_CALLBACK,
+                         &buf_status_cb))
+         {
+            retro_audio_buff_active    = false;
+            retro_audio_buff_occupancy = 0;
+            retro_audio_buff_underrun  = false;
+            retro_audio_latency        = 0;
+            calculate_audio_latency    = false;
+         }
+      }
+
+      if (calculate_audio_latency)
+      {
+         /* Frameskip is enabled - increase frontend
+          * audio latency to minimise potential
+          * buffer underruns */
+         uint32_t frame_time_usec = 1000000.0 / (is_pal_mode ? 50.0 : 60.0);
+
+         /* Set latency to 6x current frame time... */
+         retro_audio_latency = (unsigned)(6 * frame_time_usec / 1000);
+
+         /* ...then round up to nearest multiple of 32 */
+         retro_audio_latency = (retro_audio_latency + 0x1F) & ~0x1F;
+      }
+   }
+
+   update_audio_latency = true;
+   frameskip_counter    = 0;
+}
+
 static void update_variables(bool in_flight);
 bool retro_load_game(const struct retro_game_info *info)
 {
@@ -1223,8 +1493,12 @@ bool retro_load_game(const struct retro_game_info *info)
       { port, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X,  "Left Analog X" },  \
       { port, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y,  "Left Analog Y" },  \
       { port, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X, "Right Analog X" }, \
-      { port, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y, "Right Analog Y" },
-
+      { port, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y, "Right Analog Y" }, \
+      { port, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_TRIGGER, "Gun Trigger" },                        \
+      { port, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_RELOAD,  "Gun Reload" },                         \
+      { port, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_AUX_A,   "Gun Aux A" },                          \
+      { port, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_AUX_B,   "Gun Aux B" },
+      
       JOYP(0)
       JOYP(1)
       JOYP(2)
@@ -1406,6 +1680,7 @@ bool retro_load_game(const struct retro_game_info *info)
    emu_on_new_cd(0);
 
    set_retro_memmap();
+   retro_set_audio_buff_status_cb();
 
    return true;
 }
@@ -1474,13 +1749,46 @@ static void update_variables(bool in_flight)
 {
    struct retro_variable var;
 #ifdef GPU_PEOPS
-   int gpu_peops_fix = 0;
+   // Always enable GPU_PEOPS_OLD_FRAME_SKIP flag
+   // (this is set in standalone, with no option
+   // to change it)
+   int gpu_peops_fix = GPU_PEOPS_OLD_FRAME_SKIP;
 #endif
+   frameskip_type_t prev_frameskip_type;
 
    var.value = NULL;
-   var.key = "pcsx_rearmed_frameskip";
+   var.key = "pcsx_rearmed_frameskip_type";
+
+   prev_frameskip_type = frameskip_type;
+   frameskip_type = FRAMESKIP_NONE;
+   pl_rearmed_cbs.frameskip = 0;
+
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-      pl_rearmed_cbs.frameskip = atoi(var.value);
+   {
+      if (strcmp(var.value, "auto") == 0)
+         frameskip_type = FRAMESKIP_AUTO;
+      if (strcmp(var.value, "auto_threshold") == 0)
+         frameskip_type = FRAMESKIP_AUTO_THRESHOLD;
+      if (strcmp(var.value, "fixed_interval") == 0)
+         frameskip_type = FRAMESKIP_FIXED_INTERVAL;
+   }
+
+   if (frameskip_type != 0)
+      pl_rearmed_cbs.frameskip = -1;
+   
+   var.value = NULL;
+   var.key = "pcsx_rearmed_frameskip_threshold";
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+     frameskip_threshold = strtol(var.value, NULL, 10);
+   }
+
+   var.value = NULL;
+   var.key = "pcsx_rearmed_frameskip_interval";
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+     frameskip_interval = strtol(var.value, NULL, 10);
+   }   
 
    var.value = NULL;
    var.key = "pcsx_rearmed_region";
@@ -1628,7 +1936,7 @@ static void update_variables(bool in_flight)
          display_internal_fps = true;
    }
 
-#if defined(LIGHTREC) || defined(NEW_DYNAREC)
+#ifndef DRC_DISABLE
    var.value = NULL;
    var.key = "pcsx_rearmed_drc";
 
@@ -1661,7 +1969,8 @@ static void update_variables(bool in_flight)
          psxCpu->Reset(); // not really a reset..
       }
    }
-#endif /* LIGHTREC || NEW_DYNAREC */
+#endif /* !DRC_DISABLE */
+   psxCpu->ApplyConfig();
 
    var.value = NULL;
    var.key = "pcsx_rearmed_spu_reverb";
@@ -1699,16 +2008,16 @@ static void update_variables(bool in_flight)
       else if (strcmp(var.value, "enabled") == 0)
          Config.RCntFix = 1;
    }
-
+   
    var.value = NULL;
-   var.key = "pcsx_rearmed_idiablofix";
+   var.key = "pcsx_rearmed_icache_emulation";
 
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       if (strcmp(var.value, "disabled") == 0)
-         spu_config.idiablofix = 0;
+         Config.icache_emulation = 0;
       else if (strcmp(var.value, "enabled") == 0)
-         spu_config.idiablofix = 1;
+         Config.icache_emulation = 1;
    }
 
    var.value = NULL;
@@ -1837,15 +2146,6 @@ static void update_variables(bool in_flight)
    }
 
    var.value = NULL;
-   var.key = "pcsx_rearmed_gpu_peops_old_frame_skip";
-
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-   {
-      if (strcmp(var.value, "enabled") == 0)
-         gpu_peops_fix |= GPU_PEOPS_OLD_FRAME_SKIP;
-   }
-
-   var.value = NULL;
    var.key = "pcsx_rearmed_gpu_peops_repeated_triangles";
 
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
@@ -1874,69 +2174,18 @@ static void update_variables(bool in_flight)
 
    if (pl_rearmed_cbs.gpu_peops.dwActFixes != gpu_peops_fix)
       pl_rearmed_cbs.gpu_peops.dwActFixes = gpu_peops_fix;
-
-   /* Show/hide core options */
-
-   var.key = "pcsx_rearmed_show_gpu_peops_settings";
-   var.value = NULL;
-
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-   {
-      int show_advanced_gpu_peops_settings_prev = show_advanced_gpu_peops_settings;
-
-      show_advanced_gpu_peops_settings = 1;
-      if (strcmp(var.value, "disabled") == 0)
-         show_advanced_gpu_peops_settings = 0;
-
-      if (show_advanced_gpu_peops_settings != show_advanced_gpu_peops_settings_prev)
-      {
-         unsigned i;
-         struct retro_core_option_display option_display;
-         char gpu_peops_option[9][45] = {
-            "pcsx_rearmed_gpu_peops_odd_even_bit",
-            "pcsx_rearmed_gpu_peops_expand_screen_width",
-            "pcsx_rearmed_gpu_peops_ignore_brightness",
-            "pcsx_rearmed_gpu_peops_disable_coord_check",
-            "pcsx_rearmed_gpu_peops_lazy_screen_update",
-            "pcsx_rearmed_gpu_peops_old_frame_skip",
-            "pcsx_rearmed_gpu_peops_repeated_triangles",
-            "pcsx_rearmed_gpu_peops_quads_with_triangles",
-            "pcsx_rearmed_gpu_peops_fake_busy_state"
-         };
-
-         option_display.visible = show_advanced_gpu_peops_settings;
-
-         for (i = 0; i < 9; i++)
-         {
-            option_display.key = gpu_peops_option[i];
-            environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
-         }
-      }
-   }
 #endif
 
 #ifdef GPU_UNAI
-   var.key = "pcsx_rearmed_gpu_unai_ilace_force";
-   var.value = NULL;
-
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-   {
-      if (strcmp(var.value, "disabled") == 0)
-         pl_rearmed_cbs.gpu_unai.ilace_force = 0;
-      else if (strcmp(var.value, "enabled") == 0)
-         pl_rearmed_cbs.gpu_unai.ilace_force = 1;
-   }
-
-   var.key = "pcsx_rearmed_gpu_unai_pixel_skip";
-   var.value = NULL;
-
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-   {
-      if (strcmp(var.value, "disabled") == 0)
-         pl_rearmed_cbs.gpu_unai.pixel_skip = 0;
-      else if (strcmp(var.value, "enabled") == 0)
-         pl_rearmed_cbs.gpu_unai.pixel_skip = 1;
-   }
+   /* Note: This used to be an option, but it only works
+    * (correctly) when running high resolution games
+    * (480i, 512i) and has been obsoleted by
+    * pcsx_rearmed_gpu_unai_scale_hires */
+   pl_rearmed_cbs.gpu_unai.ilace_force = 0;
+   /* Note: This used to be an option, but it has no
+    * discernable effect and has been obsoleted by
+    * pcsx_rearmed_gpu_unai_scale_hires */
+   pl_rearmed_cbs.gpu_unai.pixel_skip = 0;
 
    var.key = "pcsx_rearmed_gpu_unai_lighting";
    var.value = NULL;
@@ -1981,40 +2230,6 @@ static void update_variables(bool in_flight)
       else if (strcmp(var.value, "enabled") == 0)
          pl_rearmed_cbs.gpu_unai.scale_hires = 1;
    }
-
-   var.key = "pcsx_rearmed_show_gpu_unai_settings";
-   var.value = NULL;
-
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-   {
-      int show_advanced_gpu_unai_settings_prev = show_advanced_gpu_unai_settings;
-
-      show_advanced_gpu_unai_settings = 1;
-      if (strcmp(var.value, "disabled") == 0)
-         show_advanced_gpu_unai_settings = 0;
-
-      if (show_advanced_gpu_unai_settings != show_advanced_gpu_unai_settings_prev)
-      {
-         unsigned i;
-         struct retro_core_option_display option_display;
-         char gpu_unai_option[6][40] = {
-            "pcsx_rearmed_gpu_unai_blending",
-            "pcsx_rearmed_gpu_unai_lighting",
-            "pcsx_rearmed_gpu_unai_fast_lighting",
-            "pcsx_rearmed_gpu_unai_ilace_force",
-            "pcsx_rearmed_gpu_unai_pixel_skip",
-            "pcsx_rearmed_gpu_unai_scale_hires",
-         };
-
-         option_display.visible = show_advanced_gpu_unai_settings;
-
-         for (i = 0; i < 6; i++)
-         {
-            option_display.key = gpu_unai_option[i];
-            environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
-         }
-      }
-   }
 #endif // GPU_UNAI
 
    //This adjustment process gives the user the ability to manually align the mouse up better
@@ -2052,7 +2267,7 @@ static void update_variables(bool in_flight)
       GunconAdjustRatioY = atof(var.value);
    }
 
-#ifdef NEW_DYNAREC
+#if !defined(DRC_DISABLE) && !defined(LIGHTREC)
    var.value = NULL;
    var.key = "pcsx_rearmed_nosmccheck";
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
@@ -2091,49 +2306,33 @@ static void update_variables(bool in_flight)
       int psxclock = atoi(var.value);
       cycle_multiplier = 10000 / psxclock;
    }
-#endif /* NEW_DYNAREC */
+
+   var.value = NULL;
+   var.key = "pcsx_rearmed_nocompathacks";
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (strcmp(var.value, "enabled") == 0)
+         new_dynarec_hacks |= NDHACK_NO_COMPAT_HACKS;
+      else
+         new_dynarec_hacks &= ~NDHACK_NO_COMPAT_HACKS;
+   }
+#endif /* !DRC_DISABLE && !LIGHTREC */
+
+   var.value = NULL;
+   var.key = "pcsx_rearmed_nostalls";
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (strcmp(var.value, "enabled") == 0)
+         Config.DisableStalls = 1;
+      else
+         Config.DisableStalls = 0;
+   }
 
    var.value = NULL;
    var.key = "pcsx_rearmed_input_sensitivity";
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       mouse_sensitivity = atof(var.value);
-   }
-
-   var.key = "pcsx_rearmed_show_other_input_settings";
-   var.value = NULL;
-
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-   {
-      int previous_settings = show_other_input_settings;
-
-      show_other_input_settings = 1;
-      if (strcmp(var.value, "disabled") == 0)
-         show_other_input_settings = 0;
-
-      if (show_other_input_settings != previous_settings)
-      {
-         unsigned i;
-         struct retro_core_option_display option_display;
-         char gpu_peops_option[][50] = {
-            "pcsx_rearmed_negcon_deadzone",
-            "pcsx_rearmed_negcon_response",
-            "pcsx_rearmed_analog_axis_modifier",
-            "pcsx_rearmed_gunconadjustx",
-            "pcsx_rearmed_gunconadjusty",
-            "pcsx_rearmed_gunconadjustratiox",
-            "pcsx_rearmed_gunconadjustratioy"
-         };
-         #define INPUT_LIST (sizeof(gpu_peops_option) / sizeof(gpu_peops_option[0]))
-
-         option_display.visible = show_other_input_settings;
-
-         for (i = 0; i < INPUT_LIST; i++)
-         {
-            option_display.key = gpu_peops_option[i];
-            environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
-         }
-      }
    }
 
    if (in_flight)
@@ -2146,6 +2345,10 @@ static void update_variables(bool in_flight)
          GPU_close();
          GPU_open(&gpuDisp, "PCSX", NULL);
       }
+
+      /* Reinitialise frameskipping, if required */
+      if (((frameskip_type     != prev_frameskip_type)))
+         retro_set_audio_buff_status_cb();
 
       /* dfinput_activate(); */
    }
@@ -2170,6 +2373,8 @@ static void update_variables(bool in_flight)
          }
       }
    }
+
+   update_option_visibility();
 }
 
 // Taken from beetle-psx-libretro
@@ -2225,44 +2430,42 @@ unsigned char axis_range_modifier(int16_t axis_value, bool is_square)
 
 static void update_input_guncon(int port, int ret)
 {
-   //ToDo move across to:
-   //RETRO_DEVICE_ID_LIGHTGUN_SCREEN_X
-   //RETRO_DEVICE_ID_LIGHTGUN_SCREEN_Y
-   //RETRO_DEVICE_ID_LIGHTGUN_TRIGGER
-   //RETRO_DEVICE_ID_LIGHTGUN_RELOAD
-   //RETRO_DEVICE_ID_LIGHTGUN_AUX_A
-   //RETRO_DEVICE_ID_LIGHTGUN_AUX_B
-   //Though not sure these are hooked up properly on the Pi
-
-   //GUNCON has 3 controls, Trigger,A,B which equal Circle,Start,Cross
-
-   // Trigger
-   //The 1 is hardcoded instead of port to prevent the overlay mouse button libretro crash bug
-   if (input_state_cb(port, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_LEFT))
-   {
-      in_keystate[port] |= (1 << DKEY_CIRCLE);
-   }
-
-   // A
-   if (input_state_cb(port, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_RIGHT))
-   {
-      in_keystate[port] |= (1 << DKEY_START);
-   }
-
-   // B
-   if (input_state_cb(port, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_MIDDLE))
-   {
-      in_keystate[port] |= (1 << DKEY_CROSS);
-   }
-
-   int gunx = input_state_cb(port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_X);
-   int guny = input_state_cb(port, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_Y);
+   //ToDo:
+   //Core option for cursors for both players
+   //Separate pointer and lightgun control types
 
    //Mouse range is -32767 -> 32767
    //1% is about 655
    //Use the left analog stick field to store the absolute coordinates
-   in_analog_left[port][0] = (gunx * GunconAdjustRatioX) + (GunconAdjustX * 655);
-   in_analog_left[port][1] = (guny * GunconAdjustRatioY) + (GunconAdjustY * 655);
+   //Fix cursor to top-left when gun is detected as "offscreen"
+   if (input_state_cb(port, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_IS_OFFSCREEN) || input_state_cb(port, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_RELOAD))
+   {
+      in_analog_left[port][0] = -32767;
+      in_analog_left[port][1] = -32767;
+   }
+   else
+   {
+      int gunx = input_state_cb(port, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_SCREEN_X);
+      int guny = input_state_cb(port, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_SCREEN_Y);
+	   
+      in_analog_left[port][0] = (gunx * GunconAdjustRatioX) + (GunconAdjustX * 655);
+      in_analog_left[port][1] = (guny * GunconAdjustRatioY) + (GunconAdjustY * 655);
+   }
+	
+   //GUNCON has 3 controls, Trigger,A,B which equal Circle,Start,Cross
+
+   // Trigger
+   if (input_state_cb(port, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_TRIGGER) || input_state_cb(port, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_RELOAD))
+      in_keystate[port] |= (1 << DKEY_CIRCLE);
+
+   // A
+   if (input_state_cb(port, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_AUX_A))
+      in_keystate[port] |= (1 << DKEY_START);
+
+   // B
+   if (input_state_cb(port, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_AUX_B))
+      in_keystate[port] |= (1 << DKEY_CROSS);
+	   
 }
 
 static void update_input_negcon(int port, int ret)
@@ -2519,6 +2722,46 @@ void retro_run(void)
 
    print_internal_fps();
 
+   /* Check whether current frame should
+    * be skipped */
+   pl_rearmed_cbs.fskip_force = 0;
+   pl_rearmed_cbs.fskip_dirty = 0;
+
+   if (frameskip_type != FRAMESKIP_NONE)
+   {
+      bool skip_frame = false;
+
+      switch (frameskip_type)
+      {
+         case FRAMESKIP_AUTO:
+            skip_frame = retro_audio_buff_active && retro_audio_buff_underrun;
+            break;
+         case FRAMESKIP_AUTO_THRESHOLD:
+            skip_frame = retro_audio_buff_active && (retro_audio_buff_occupancy < frameskip_threshold);
+            break;
+         case FRAMESKIP_FIXED_INTERVAL:
+            skip_frame = true;
+            break;
+         default:
+            break;
+      }
+
+      if (skip_frame && frameskip_counter < frameskip_interval)
+         pl_rearmed_cbs.fskip_force = 1;
+   }
+
+   /* If frameskip/timing settings have changed,
+    * update frontend audio latency
+    * > Can do this before or after the frameskip
+    *   check, but doing it after means we at least
+    *   retain the current frame's audio output */
+   if (update_audio_latency)
+   {
+      environ_cb(RETRO_ENVIRONMENT_SET_MINIMUM_AUDIO_LATENCY,
+            &retro_audio_latency);
+      update_audio_latency = false;
+   }
+
    input_poll_cb();
 
    update_input();
@@ -2529,6 +2772,13 @@ void retro_run(void)
 
    stop = 0;
    psxCpu->Execute();
+
+   if (pl_rearmed_cbs.fskip_dirty == 1) {
+      if (frameskip_counter < frameskip_interval)
+         frameskip_counter++;
+      else if (frameskip_counter >= frameskip_interval || !pl_rearmed_cbs.fskip_force)
+         frameskip_counter = 0;
+   }
 
    video_cb((vout_fb_dirty || !vout_can_dupe || !duping_enable) ? vout_buf_ptr : NULL,
        vout_width, vout_height, vout_width * 2);
@@ -2649,7 +2899,6 @@ static void loadPSXBios(void)
    unsigned useHLE = 0;
 
    const char *bios[] = {
-      "PS1_ROM", "ps1_rom",
       "PSXONPSP660", "psxonpsp660",
       "SCPH101", "scph101",
       "SCPH5501", "scph5501",
@@ -2839,10 +3088,28 @@ void retro_deinit(void)
    deinit_vita_mmap();
 #endif
    libretro_supports_bitmasks = false;
+   libretro_supports_option_categories = false;
+
+   show_input_settings = true;
+#ifdef GPU_PEOPS
+   show_advanced_gpu_peops_settings = true;
+#endif
+#ifdef GPU_UNAI
+   show_advanced_gpu_unai_settings = true;
+#endif
 
    /* Have to reset disks struct, otherwise
     * fnames/flabels will leak memory */
    disk_init();
+   frameskip_type             = FRAMESKIP_NONE;
+   frameskip_threshold        = 0;
+   frameskip_interval         = 0;
+   frameskip_counter          = 0;
+   retro_audio_buff_active    = false;
+   retro_audio_buff_occupancy = 0;
+   retro_audio_buff_underrun  = false;
+   retro_audio_latency        = 0;
+   update_audio_latency       = false;
 }
 
 #ifdef VITA

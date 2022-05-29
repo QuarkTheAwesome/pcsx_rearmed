@@ -29,19 +29,26 @@ extern "C" {
 #include "psxcounters.h"
 #include "psxbios.h"
 
+enum {
+	R3000ACPU_NOTIFY_CACHE_ISOLATED = 0,
+	R3000ACPU_NOTIFY_CACHE_UNISOLATED = 1,
+	R3000ACPU_NOTIFY_DMA3_EXE_LOAD = 2
+};
+
 typedef struct {
 	int  (*Init)();
 	void (*Reset)();
 	void (*Execute)();		/* executes up to a break */
 	void (*ExecuteBlock)();	/* executes up to a jump */
 	void (*Clear)(u32 Addr, u32 Size);
+	void (*Notify)(int note, void *data);
+	void (*ApplyConfig)();
 	void (*Shutdown)();
 } R3000Acpu;
 
 extern R3000Acpu *psxCpu;
 extern R3000Acpu psxInt;
 extern R3000Acpu psxRec;
-#define PSXREC
 
 typedef union {
 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
@@ -182,13 +189,23 @@ typedef struct {
 	u32 cycle;
 	u32 interrupt;
 	struct { u32 sCycle, cycle; } intCycle[32];
+	u32 gteBusyCycle;
+	u32 muldivBusyCycle;
+	// warning: changing anything in psxRegisters requires update of all
+	// asm in libpcsxcore/new_dynarec/, but this member can be replaced
+	u32 reserved[2];
 } psxRegisters;
+
+extern boolean writeok;
 
 extern psxRegisters psxRegs;
 
 /* new_dynarec stuff */
 extern u32 event_cycles[PSXINT_COUNT];
 extern u32 next_interupt;
+
+void lightrec_plugin_prepare_save_state(void);
+void lightrec_plugin_prepare_load_state(void);
 
 void new_dyna_before_save(void);
 void new_dyna_after_save(void);

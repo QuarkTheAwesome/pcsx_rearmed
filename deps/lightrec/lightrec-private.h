@@ -1,21 +1,13 @@
+/* SPDX-License-Identifier: LGPL-2.1-or-later */
 /*
- * Copyright (C) 2016-2020 Paul Cercueil <paul@crapouillou.net>
- *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
- *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
+ * Copyright (C) 2016-2021 Paul Cercueil <paul@crapouillou.net>
  */
 
 #ifndef __LIGHTREC_PRIVATE_H__
 #define __LIGHTREC_PRIVATE_H__
 
-#include "config.h"
+#include "lightning-wrapper.h"
+#include "lightrec-config.h"
 #include "disassembler.h"
 #include "lightrec.h"
 
@@ -24,7 +16,6 @@
 #endif
 
 #define ARRAY_SIZE(x) (sizeof(x) ? sizeof(x) / sizeof((x)[0]) : 0)
-#define BIT(x) (1 << (x))
 
 #ifdef __GNUC__
 #	define likely(x)       __builtin_expect(!!(x),1)
@@ -46,16 +37,26 @@
 #	define HTOLE16(x)	(x)
 #endif
 
+#if HAS_DEFAULT_ELM
+#define SET_DEFAULT_ELM(table, value) [0 ... ARRAY_SIZE(table) - 1] = value
+#else
+#define SET_DEFAULT_ELM(table, value) [0] = NULL
+#endif
+
 /* Flags for (struct block *)->flags */
 #define BLOCK_NEVER_COMPILE	BIT(0)
 #define BLOCK_SHOULD_RECOMPILE	BIT(1)
 #define BLOCK_FULLY_TAGGED	BIT(2)
 #define BLOCK_IS_DEAD		BIT(3)
+#define BLOCK_IS_MEMSET		BIT(4)
 
 #define RAM_SIZE	0x200000
 #define BIOS_SIZE	0x80000
 
 #define CODE_LUT_SIZE	((RAM_SIZE + BIOS_SIZE) >> 2)
+
+#define REG_LO 32
+#define REG_HI 33
 
 /* Definition of jit_state_t (avoids inclusion of <lightning.h>) */
 struct jit_node;
@@ -71,19 +72,18 @@ struct reaper;
 
 struct block {
 	jit_state_t *_jit;
-	struct lightrec_state *state;
 	struct opcode *opcode_list;
 	void (*function)(void);
+	const u32 *code;
+	struct block *next;
 	u32 pc;
 	u32 hash;
+	unsigned int code_size;
+	u16 nb_ops;
+	u8 flags;
 #if ENABLE_THREADED_COMPILER
 	atomic_flag op_list_freed;
 #endif
-	unsigned int code_size;
-	u16 flags;
-	u16 nb_ops;
-	const struct lightrec_mem_map *map;
-	struct block *next;
 };
 
 struct lightrec_branch {
@@ -96,47 +96,74 @@ struct lightrec_branch_target {
 	u32 offset;
 };
 
-struct lightrec_state {
-	u32 native_reg_cache[34];
-	u32 next_pc;
-	u32 current_cycle;
-	u32 target_cycle;
-	u32 exit_flags;
-	struct block *dispatcher, *rw_wrapper, *rw_generic_wrapper,
-		     *mfc_wrapper, *mtc_wrapper, *rfe_wrapper, *cp_wrapper,
-		     *syscall_wrapper, *break_wrapper;
-	void *rw_func, *rw_generic_func, *mfc_func, *mtc_func, *rfe_func,
-	     *cp_func, *syscall_func, *break_func;
+enum c_wrappers {
+	C_WRAPPER_RW,
+	C_WRAPPER_RW_GENERIC,
+	C_WRAPPER_MTC,
+	C_WRAPPER_CP,
+	C_WRAPPER_SYSCALL,
+	C_WRAPPER_BREAK,
+	C_WRAPPERS_COUNT,
+};
+
+struct lightrec_cstate {
+	struct lightrec_state *state;
+
 	struct jit_node *branches[512];
 	struct lightrec_branch local_branches[512];
 	struct lightrec_branch_target targets[512];
 	unsigned int nb_branches;
 	unsigned int nb_local_branches;
 	unsigned int nb_targets;
+	unsigned int cycles;
+
+	struct regcache *reg_cache;
+};
+
+struct lightrec_state {
+	struct lightrec_registers regs;
+	u32 next_pc;
+	u32 current_cycle;
+	u32 target_cycle;
+	u32 exit_flags;
+	u32 old_cycle_counter;
+	u32 c_wrapper_arg;
+	struct block *dispatcher, *c_wrapper_block;
+	void *c_wrappers[C_WRAPPERS_COUNT];
+	void *wrappers_eps[C_WRAPPERS_COUNT];
 	struct tinymm *tinymm;
 	struct blockcache *block_cache;
-	struct regcache *reg_cache;
 	struct recompiler *rec;
+	struct lightrec_cstate *cstate;
 	struct reaper *reaper;
+	void *tlsf;
 	void (*eob_wrapper_func)(void);
+	void (*memset_func)(void);
 	void (*get_next_block)(void);
 	struct lightrec_ops ops;
 	unsigned int nb_precompile;
-	unsigned int cycles;
 	unsigned int nb_maps;
 	const struct lightrec_mem_map *maps;
 	uintptr_t offset_ram, offset_bios, offset_scratch;
+	_Bool with_32bit_lut;
 	_Bool mirrors_mapped;
 	_Bool invalidate_from_dma_only;
 	void *code_lut[];
 };
 
 u32 lightrec_rw(struct lightrec_state *state, union code op,
-		u32 addr, u32 data, u16 *flags);
+		u32 addr, u32 data, u16 *flags,
+		struct block *block);
 
-void lightrec_free_block(struct block *block);
+void lightrec_free_block(struct lightrec_state *state, struct block *block);
 
 void remove_from_code_lut(struct blockcache *cache, struct block *block);
+
+enum psx_map
+lightrec_get_map_idx(struct lightrec_state *state, u32 kaddr);
+
+const struct lightrec_mem_map *
+lightrec_get_map(struct lightrec_state *state, void **host, u32 kaddr);
 
 static inline u32 kunseg(u32 addr)
 {
@@ -154,12 +181,92 @@ static inline u32 lut_offset(u32 pc)
 		return (pc & (RAM_SIZE - 1)) >> 2; // RAM
 }
 
+static inline _Bool is_big_endian(void)
+{
+	return __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__;
+}
+
+static inline _Bool lut_is_32bit(const struct lightrec_state *state)
+{
+	return __WORDSIZE == 32 ||
+		(ENABLE_CODE_BUFFER && state->with_32bit_lut);
+}
+
+static inline size_t lut_elm_size(const struct lightrec_state *state)
+{
+	return lut_is_32bit(state) ? 4 : sizeof(void *);
+}
+
+static inline void ** lut_address(struct lightrec_state *state, u32 offset)
+{
+	if (lut_is_32bit(state))
+		return (void **) ((uintptr_t) state->code_lut + offset * 4);
+	else
+		return &state->code_lut[offset];
+}
+
+static inline void * lut_read(struct lightrec_state *state, u32 offset)
+{
+	void **lut_entry = lut_address(state, lut_offset(offset));
+
+	if (lut_is_32bit(state))
+		return (void *)(uintptr_t) *(u32 *) lut_entry;
+	else
+		return *lut_entry;
+}
+
+static inline void lut_write(struct lightrec_state *state, u32 offset, void *ptr)
+{
+	void **lut_entry = lut_address(state, offset);
+
+	if (lut_is_32bit(state))
+		*(u32 *) lut_entry = (u32)(uintptr_t) ptr;
+	else
+		*lut_entry = ptr;
+}
+
+static inline u32 get_ds_pc(const struct block *block, u16 offset, s16 imm)
+{
+	u16 flags = block->opcode_list[offset].flags;
+
+	offset += !!(OPT_SWITCH_DELAY_SLOTS && (flags & LIGHTREC_NO_DS));
+
+	return block->pc + (offset + imm << 2);
+}
+
+static inline u32 get_branch_pc(const struct block *block, u16 offset, s16 imm)
+{
+	u16 flags = block->opcode_list[offset].flags;
+
+	offset -= !!(OPT_SWITCH_DELAY_SLOTS && (flags & LIGHTREC_NO_DS));
+
+	return block->pc + (offset + imm << 2);
+}
+
 void lightrec_mtc(struct lightrec_state *state, union code op, u32 data);
 u32 lightrec_mfc(struct lightrec_state *state, union code op);
+void lightrec_rfe(struct lightrec_state *state);
+void lightrec_cp(struct lightrec_state *state, union code op);
+
+struct lightrec_cstate * lightrec_create_cstate(struct lightrec_state *state);
+void lightrec_free_cstate(struct lightrec_cstate *cstate);
 
 union code lightrec_read_opcode(struct lightrec_state *state, u32 pc);
 
 struct block * lightrec_get_block(struct lightrec_state *state, u32 pc);
-int lightrec_compile_block(struct block *block);
+int lightrec_compile_block(struct lightrec_cstate *cstate, struct block *block);
+void lightrec_free_opcode_list(struct lightrec_state *state, struct block *block);
+
+unsigned int lightrec_cycles_of_opcode(union code code);
+
+static inline u8 get_mult_div_lo(union code c)
+{
+	return (OPT_FLAG_MULT_DIV && c.r.rd) ? c.r.rd : REG_LO;
+}
+
+static inline u8 get_mult_div_hi(union code c)
+{
+	return (OPT_FLAG_MULT_DIV && c.r.imm) ? c.r.imm : REG_HI;
+}
 
 #endif /* __LIGHTREC_PRIVATE_H__ */

@@ -776,7 +776,9 @@ unsigned char _PADpoll(int port, unsigned char value) {
 	}
 
 	//if no new request the pad return 0xff, for signaling connected
-	if (reqPos >= respSize) return 0xff;
+	if (reqPos >= respSize
+	 && writeok
+	 ) return 0xff;
 
 	switch(reqPos){
 		case 2:
