@@ -1851,10 +1851,18 @@ _emit_code(jit_state_t *_jit)
 #  include "jit_ppc-fpu.c"
 #undef CODE
 
+#ifdef __wiiu__
+#include <coreinit/cache.h>
+#endif
+
 void
 jit_flush(void *fptr, void *tptr)
 {
-#if defined(__GNUC__)
+#if defined(__wiiu__)
+    uint32_t len = (uint32_t)tptr - (uint32_t)fptr;
+    DCFlushRange(fptr, len);
+    ICInvalidateRange(fptr, len);
+#elif defined(__GNUC__)
     jit_word_t		f, t, s;
 
     s = sysconf(_SC_PAGE_SIZE);

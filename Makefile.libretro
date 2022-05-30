@@ -297,10 +297,14 @@ else ifneq (,$(filter $(platform),ngc wii wiiu))
 	CFLAGS += -D__ppc__ -D__powerpc__
 	CFLAGS += -DGEKKO -mcpu=750 -meabi -mhard-float
 	CFLAGS += -DNO_SOCKET -DNO_DYLIB -DNO_PTHREAD -DNO_MMAP
+	CFLAGS += -DLIGHTREC_CUSTOM_MAP=1
+	LIGHTREC_CUSTOM_MAP := wiiu
+	LIGHTREC_NO_THREADS := 1
+	OBJS += libpcsxcore/lightrec/mem_wiiu.o
+	OBJS += deps/lightrec/tlsf/tlsf.o
 	STATIC_LINKING := 1
 	THREAD_RENDERING := 0
 	BUILTIN_GPU := peops
-	DYNAREC := none
 	LIBDL :=
 	LIBPTHREAD :=
 

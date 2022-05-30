@@ -15,6 +15,10 @@
 
 #include "../frontend/main.h"
 
+#ifdef __wiiu__
+#include "wiiu.h"
+#endif
+
 #if (defined(__arm__) || defined(__aarch64__)) && !defined(ALLOW_LIGHTREC_ON_ARM)
 #error "Lightrec should not be used on ARM (please specify DYNAREC=ari64 to make)"
 #endif
@@ -289,6 +293,12 @@ static struct lightrec_mem_map lightrec_map[] = {
 		.length = 0x200000,
 		.mirror_of = &lightrec_map[PSX_MAP_KERNEL_USER_RAM],
 	},
+#ifdef __wiiu__
+	[PSX_MAP_CODE_BUFFER] = {
+		.length = WUP_RECMEM_SIZE,
+		.address = WUP_RWX_MEM_BASE,
+	},
+#endif
 };
 
 static void lightrec_enable_ram(struct lightrec_state *state, bool enable)

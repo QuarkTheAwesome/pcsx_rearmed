@@ -6,11 +6,16 @@
 #ifndef __LIGHTREC_CONFIG_H__
 #define __LIGHTREC_CONFIG_H__
 
-#define ENABLE_THREADED_COMPILER 1
 #define ENABLE_FIRST_PASS 1
 #define ENABLE_DISASSEMBLER 0
 #define ENABLE_TINYMM 0
+#ifdef __wiiu__
+#define ENABLE_CODE_BUFFER 1
+#define ENABLE_THREADED_COMPILER 0
+#else
 #define ENABLE_CODE_BUFFER 0
+#define ENABLE_THREADED_COMPILER 1
+#endif
 
 #define HAS_DEFAULT_ELM 1
 
@@ -26,4 +31,3 @@
 #define OPT_EARLY_UNLOAD 1
 
 #endif /* __LIGHTREC_CONFIG_H__ */
-

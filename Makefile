@@ -91,11 +91,16 @@ libpcsxcore/psxbios.o: CFLAGS += -Wno-nonnull
 # dynarec
 ifeq "$(DYNAREC)" "lightrec"
 CFLAGS += -Ideps/lightning/include -Ideps/lightrec -Iinclude/lightning -Iinclude/lightrec \
-		  -DLIGHTREC -DLIGHTREC_STATIC \
-		  -DLIGHTREC_CUSTOM_MAP=$(LIGHTREC_CUSTOM_MAP)
+		  -DLIGHTREC -DLIGHTREC_STATIC
 LDLIBS += -lrt
 ifeq ($(LIGHTREC_CUSTOM_MAP),1)
 OBJS += libpcsxcore/lightrec/mem.o
+CFLAGS += -DLIGHTREC_CUSTOM_MAP=1
+else
+ifeq ($(LIGHTREC_CUSTOM_MAP),0)
+CFLAGS += -DLIGHTREC_CUSTOM_MAP=0
+endif
+# Else do nothing
 endif
 OBJS += libpcsxcore/lightrec/plugin.o
 OBJS += deps/lightning/lib/jit_disasm.o \
@@ -112,9 +117,11 @@ OBJS += deps/lightning/lib/jit_disasm.o \
 		deps/lightrec/lightrec.o \
 		deps/lightrec/memmanager.o \
 		deps/lightrec/optimizer.o \
-		deps/lightrec/regcache.o \
-		deps/lightrec/recompiler.o \
+		deps/lightrec/regcache.o
+ifneq ($(LIGHTREC_NO_THREADS),1)
+OBJS += deps/lightrec/recompiler.o \
 		deps/lightrec/reaper.o
+endif
 libpcsxcore/lightrec/mem.o: CFLAGS += -D_GNU_SOURCE
 ifeq ($(MMAP_WIN32),1)
 CFLAGS += -Iinclude/mman
