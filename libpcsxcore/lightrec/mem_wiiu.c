@@ -42,7 +42,7 @@ static void* psx_scratch;
 static void* psx_bios;
 
 int lightrec_init_mmap(void) {
-	psx_mem      = memalign(OS_PAGE_SIZE, 0x200000 * 4);
+	psx_mem      = memalign(OS_PAGE_SIZE, 0x200000);
 	psx_parallel = memalign(OS_PAGE_SIZE, 0x10000);
 	psx_scratch  = memalign(OS_PAGE_SIZE, 0x10000);
 	psx_bios     = memalign(OS_PAGE_SIZE, 0x80000);
@@ -55,13 +55,26 @@ int lightrec_init_mmap(void) {
 	if (!avail_va || avail_va_size < 0x20000000)
 		goto cleanup_allocations;
 
-	psxM = wiiu_mmap(avail_va + 0x00000000, 0x200000 * 4, psx_mem);
+	// Map 4x ram mirrors
+	int i;
+	for (i = 0; i < 4; i++) {
+		void* ret = wiiu_mmap(avail_va + 0x200000 * i, 0x200000, psx_mem);
+		if (ret == MAP_FAILED) break;
+	}
+	if (i != 4) {
+		for (int i = 0; i < 4; i++)
+			wiiu_unmap(avail_va + 0x200000 * i, 0x200000);
+		goto cleanup_allocations;
+	}
+	psxM = (void*)avail_va;
+
 	psxP = wiiu_mmap(avail_va + 0x1f000000, 0x10000, psx_parallel);
 	psxH = wiiu_mmap(avail_va + 0x1f800000, 0x10000, psx_scratch);
 	psxR = wiiu_mmap(avail_va + 0x1fc00000, 0x80000, psx_bios);
 
-	if (psxM == MAP_FAILED || psxP == MAP_FAILED || psxH == MAP_FAILED || psxR == MAP_FAILED) {
-		wiiu_unmap(psxM, 0x200000 * 4);
+	if (psxP == MAP_FAILED || psxH == MAP_FAILED || psxR == MAP_FAILED) {
+		for (int i = 0; i < 4; i++)
+			wiiu_unmap(psxM + 0x200000 * i, 0x200000);
 		wiiu_unmap(psxP, 0x10000);
 		wiiu_unmap(psxH, 0x10000);
 		wiiu_unmap(psxR, 0x80000);
@@ -79,7 +92,8 @@ cleanup_allocations:
 }
 
 void lightrec_free_mmap(void) {
-	wiiu_unmap(psxM, 0x200000 * 4);
+	for (int i = 0; i < 4; i++)
+		wiiu_unmap(psxM + 0x200000 * i, 0x200000);
 	wiiu_unmap(psxP, 0x10000);
 	wiiu_unmap(psxH, 0x10000);
 	wiiu_unmap(psxR, 0x80000);
